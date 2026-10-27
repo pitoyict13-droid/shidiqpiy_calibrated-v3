@@ -1,0 +1,371 @@
+[
+  {
+    "Date": "2026-10-27T01:00:00-04:00",
+    "Event": "BOJ Core CPI y/y",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "1.9%",
+    "Previous": "1.8%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T04:00:00-04:00",
+    "Event": "Spanish Unemployment Rate",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "9.9%",
+    "Previous": "9.9%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T08:15:00-04:00",
+    "Event": "ADP Weekly Employment Change",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "18.5K",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T08:30:00-04:00",
+    "Event": "Core Durable Goods Orders m/m",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "0.6%",
+    "Previous": "0.3%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T08:30:00-04:00",
+    "Event": "Durable Goods Orders m/m",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "2.0%",
+    "Previous": "0.0%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T10:00:00-04:00",
+    "Event": "CB Consumer Confidence",
+    "Country": "USD",
+    "Importance": 2,
+    "Forecast": "81.2",
+    "Previous": "81.9",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T20:30:00-04:00",
+    "Event": "CPI m/m",
+    "Country": "AUD",
+    "Importance": 3,
+    "Forecast": "0.7%",
+    "Previous": "0.4%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T20:30:00-04:00",
+    "Event": "CPI y/y",
+    "Country": "AUD",
+    "Importance": 3,
+    "Forecast": "4.2%",
+    "Previous": "4.0%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-27T20:30:00-04:00",
+    "Event": "Trimmed Mean CPI m/m",
+    "Country": "AUD",
+    "Importance": 3,
+    "Forecast": "0.3%",
+    "Previous": "0.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-28T08:30:00-04:00",
+    "Event": "Prelim Wholesale Inventories m/m",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "0.5%",
+    "Previous": "0.7%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-28T10:30:00-04:00",
+    "Event": "Crude Oil Inventories",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "-0.1M",
+    "Previous": "-3.1M",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-28T14:00:00-04:00",
+    "Event": "Federal Funds Rate",
+    "Country": "USD",
+    "Importance": 3,
+    "Forecast": "4.00%",
+    "Previous": "4.00%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-28T14:00:00-04:00",
+    "Event": "FOMC Statement",
+    "Country": "USD",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-28T14:30:00-04:00",
+    "Event": "FOMC Press Conference",
+    "Country": "USD",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T01:00:00-04:00",
+    "Event": "Consumer Confidence",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "35.1",
+    "Previous": "35.4",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T05:00:00-04:00",
+    "Event": "Italian Monthly Unemployment Rate",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "6.2%",
+    "Previous": "6.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T08:30:00-04:00",
+    "Event": "Advance GDP q/q",
+    "Country": "USD",
+    "Importance": 3,
+    "Forecast": "3.2%",
+    "Previous": "1.5%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T08:30:00-04:00",
+    "Event": "Core PCE Price Index m/m",
+    "Country": "USD",
+    "Importance": 3,
+    "Forecast": "0.3%",
+    "Previous": "0.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T08:30:00-04:00",
+    "Event": "Advance GDP Price Index q/q",
+    "Country": "USD",
+    "Importance": 2,
+    "Forecast": "3.3%",
+    "Previous": "6.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T08:30:00-04:00",
+    "Event": "Unemployment Claims",
+    "Country": "USD",
+    "Importance": 2,
+    "Forecast": "198K",
+    "Previous": "194K",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T10:30:00-04:00",
+    "Event": "Natural Gas Storage",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "77B",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T19:30:00-04:00",
+    "Event": "Tokyo Core CPI y/y",
+    "Country": "JPY",
+    "Importance": 2,
+    "Forecast": "2.6%",
+    "Previous": "2.7%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T19:30:00-04:00",
+    "Event": "Unemployment Rate",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "2.5%",
+    "Previous": "2.5%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-29T19:50:00-04:00",
+    "Event": "Retail Sales y/y",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "3.3%",
+    "Previous": "2.7%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T02:30:00-04:00",
+    "Event": "French Flash GDP q/q",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "0.1%",
+    "Previous": "0.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T03:29:00-04:00",
+    "Event": "German Prelim CPI m/m",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "0.1%",
+    "Previous": "0.6%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T03:45:00-04:00",
+    "Event": "French Prelim CPI m/m",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "0.2%",
+    "Previous": "-0.3%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T03:45:00-04:00",
+    "Event": "French Prelim Private Payrolls q/q",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "-0.1%",
+    "Previous": "-0.1%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T04:00:00-04:00",
+    "Event": "Spanish Flash CPI y/y",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "4.9%",
+    "Previous": "4.9%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T04:00:00-04:00",
+    "Event": "Spanish Flash GDP q/q",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "0.6%",
+    "Previous": "0.7%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T04:55:00-04:00",
+    "Event": "German Unemployment Change",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "5K",
+    "Previous": "12K",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T05:00:00-04:00",
+    "Event": "German Prelim GDP q/q",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "0.1%",
+    "Previous": "0.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T05:00:00-04:00",
+    "Event": "Italian Prelim GDP q/q",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "0.1%",
+    "Previous": "0.2%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T06:00:00-04:00",
+    "Event": "Italian Prelim CPI m/m",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "0.1%",
+    "Previous": "0.7%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T06:00:00-04:00",
+    "Event": "Prelim Flash GDP q/q",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "0.2%",
+    "Previous": "0.4%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T06:00:00-04:00",
+    "Event": "Unemployment Rate",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "6.4%",
+    "Previous": "6.4%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T08:30:00-04:00",
+    "Event": "GDP m/m",
+    "Country": "CAD",
+    "Importance": 2,
+    "Forecast": "0.2%",
+    "Previous": "0.0%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T08:30:00-04:00",
+    "Event": "Employment Cost Index q/q",
+    "Country": "USD",
+    "Importance": 2,
+    "Forecast": "0.8%",
+    "Previous": "0.9%",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T09:45:00-04:00",
+    "Event": "Chicago PMI",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "55.8",
+    "Previous": "58.8",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T12:00:00-04:00",
+    "Event": "FOMC Member Daly Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": ""
+  },
+  {
+    "Date": "2026-10-30T12:30:00-04:00",
+    "Event": "FOMC Member Musalem Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": ""
+  }
+]

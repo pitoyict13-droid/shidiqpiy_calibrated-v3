@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#071018">
+  <title>shidiqpiy — XAUUSD News Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--ink:#eefaff;--muted:#91aeb8;--line:rgba(92,190,214,.18);--aqua:#27d5e0;--blue:#5db7e8;--green:#18d19a;--red:#ff647d;--amber:#f2b84b;--glass:rgba(7,16,24,.48);--glass2:rgba(10,24,34,.58);--shadow:0 18px 55px rgba(0,0,0,.34)}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--ink);font:15px/1.55 "DM Sans",sans-serif;background:#03080d;min-height:100vh;overflow-x:hidden}
+    body:before{content:"";position:fixed;inset:0;z-index:-2;background:radial-gradient(circle at 9% 8%,rgba(12,92,125,.34) 0,transparent 34%),radial-gradient(circle at 90% 22%,rgba(17,64,96,.3) 0,transparent 29%),linear-gradient(150deg,#02070c 5%,#07151e 52%,#02070c 100%)}
+    body:after{content:"";position:fixed;inset:0;z-index:-1;opacity:.12;background-image:radial-gradient(#43c8dc 1px,transparent 1px);background-size:24px 24px;mask-image:linear-gradient(to bottom,black,transparent 85%)}
+    button,select{font:inherit}.shell{width:min(1380px,calc(100% - 32px));margin:auto;padding:22px 0 54px}.glass{background:var(--glass);border:1px solid rgba(94,199,222,.18);box-shadow:var(--shadow);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+    header{border-radius:28px;padding:24px 28px;display:flex;justify-content:space-between;gap:24px;align-items:center;flex-wrap:wrap}.brand{display:flex;align-items:center;gap:14px}.logo{width:52px;height:52px;border-radius:18px;display:grid;place-items:center;background:linear-gradient(145deg,#17c5c2,#20749c);color:#fff;font:800 22px Manrope;box-shadow:0 10px 28px rgba(32,185,210,.25)}.brand h1{font:800 clamp(20px,3vw,28px) Manrope;margin:0;letter-spacing:-.8px}.brand p{margin:2px 0 0;color:var(--muted)}.live{display:flex;align-items:center;gap:9px;color:var(--green);font-weight:700}.dot{width:9px;height:9px;border-radius:50%;background:currentColor;box-shadow:0 0 0 7px rgba(24,209,154,.1);animation:pulse 1.8s infinite}@keyframes pulse{50%{box-shadow:0 0 0 12px transparent}}
+    .hero{margin:22px 0;display:grid;grid-template-columns:1.5fr .8fr;gap:18px}.intro{border-radius:28px;padding:32px}.eyebrow{color:var(--aqua);text-transform:uppercase;font-size:12px;letter-spacing:1.6px;font-weight:800}.intro h2{font:800 clamp(30px,5vw,55px)/1.05 Manrope;margin:12px 0;letter-spacing:-2.3px;max-width:760px}.intro h2 span{color:var(--blue)}.intro p{color:var(--muted);max-width:690px;font-size:16px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:26px}.stat{padding:15px;border-radius:18px;background:rgba(4,15,23,.38);border:1px solid var(--line)}.stat b{display:block;font:700 20px Manrope}.stat span{color:var(--muted);font-size:12px}.next{border-radius:28px;padding:28px;display:flex;flex-direction:column;justify-content:space-between;background:linear-gradient(145deg,rgba(18,115,145,.68),rgba(8,151,159,.62));border:1px solid rgba(100,226,236,.24);color:#fff}.next .eyebrow{color:#c9ffff}.next h3{font:800 26px Manrope;margin:12px 0}.countdown{font:800 clamp(31px,5vw,48px) Manrope;letter-spacing:1px}.next small{color:#d7fbff}.toolbar{border-radius:22px;padding:14px 18px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;position:sticky;top:10px;z-index:5}.filters{display:flex;gap:9px;flex-wrap:wrap}.chip,.refresh{border:1px solid var(--line);background:rgba(5,17,25,.48);color:var(--ink);padding:9px 14px;border-radius:999px;cursor:pointer;font-weight:700}.chip.active{background:rgba(34,178,202,.25);color:#fff;border-color:rgba(80,210,226,.35)}.refresh{color:var(--blue)}.status{color:var(--muted);font-size:13px}
+    .section-head{display:flex;justify-content:space-between;align-items:end;margin:30px 4px 15px}.section-head h3{font:800 25px Manrope;margin:0}.section-head p{color:var(--muted);margin:3px 0}.timeline{position:relative}.day{margin-bottom:19px}.datebar{display:flex;gap:10px;align-items:center;margin:0 0 10px 15px}.datebar strong{font:800 17px Manrope}.datebar span{color:var(--muted)}
+    .event{border-radius:24px;padding:22px;display:grid;grid-template-columns:minmax(210px,1.5fr) repeat(3,minmax(90px,.55fr)) minmax(165px,.75fr);gap:16px;align-items:center;margin-bottom:11px;transition:.2s;background:rgba(5,15,23,.44)}.event:hover{transform:translateY(-2px);box-shadow:0 23px 58px rgba(0,0,0,.4);background:rgba(8,24,34,.58)}.event-title{display:flex;gap:14px;align-items:flex-start}.flag{width:42px;height:42px;display:grid;place-items:center;border-radius:14px;background:rgba(24,78,94,.36);font-size:20px;flex:none}.event h4{font:700 17px Manrope;margin:0 0 3px}.event-title p,.metric span{color:var(--muted);font-size:12px;margin:0}.metric b{display:block;margin-top:3px;color:#e9f8fc}.impact{display:inline-flex;padding:4px 9px;border-radius:99px;background:rgba(43,157,181,.18);color:#72d4e4;font-size:11px;font-weight:800}.signal{border-radius:18px;padding:12px 14px;background:rgba(4,14,21,.42)}.signal.long{background:rgba(18,139,105,.2);color:var(--green)}.signal.short{background:rgba(181,44,66,.2);color:var(--red)}.signal.wait{background:rgba(177,122,33,.2);color:#ffc96b}.signal b{font:800 18px Manrope}.signal small{display:block}.expand{grid-column:1/-1;border-top:1px solid var(--line);padding-top:17px;display:grid;grid-template-columns:1.4fr .6fr;gap:20px}.reason b{display:block;margin-bottom:4px}.reason p{color:var(--muted);margin:0}.meter-row{display:flex;align-items:center;gap:12px}.meter{height:10px;background:rgba(117,164,177,.16);border-radius:99px;overflow:hidden;flex:1}.meter i{display:block;height:100%;width:var(--score);background:var(--meter);border-radius:inherit}.score{font:800 19px Manrope;color:var(--meter)}.empty{border-radius:24px;padding:45px;text-align:center;color:var(--muted)}.footer{margin-top:26px;padding:20px;text-align:center;color:var(--muted);font-size:12px}.hidden{display:none!important}
+    @media(max-width:950px){.hero{grid-template-columns:1fr}.event{grid-template-columns:1fr 1fr 1fr}.event-title{grid-column:1/-1}.signal{grid-column:2/4}.expand{grid-template-columns:1fr}}@media(max-width:620px){.shell{width:min(100% - 18px,1380px)}header{padding:18px;align-items:flex-start}.brand p{display:none}.live{font-size:12px}.intro{padding:23px}.intro h2{letter-spacing:-1.4px}.stats{grid-template-columns:1fr}.toolbar{top:5px}.status{width:100%}.event{grid-template-columns:1fr 1fr;padding:17px}.signal{grid-column:1/-1}.metric:nth-of-type(3){grid-column:1/-1}.expand{grid-column:1/-1}}
+    
+    /* STYLE UNTUK EXECUTION LEVELS & WARNING */
+    .tpsl{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;padding:10px 14px;border-radius:14px;background:rgba(43,157,181,.10);border:1px dashed rgba(114,212,228,.35);font-size:13px;color:#cfe9ef}.tpsl b{color:#72d4e4;margin-right:6px;font-weight:800}.tpsl span{background:rgba(4,14,21,.4);padding:5px 10px;border-radius:8px}
+    .warning-badge { background: rgba(255,100,125,0.15); color: var(--red); border: 1px solid rgba(255,100,125,0.3); padding: 5px 10px; border-radius: 8px; font-size: 11px; display: inline-block; margin-bottom: 10px; font-weight: bold; }
+    .expired-badge { background: rgba(145,174,184,0.15); color: var(--muted); border: 1px solid rgba(145,174,184,0.3); padding: 5px 10px; border-radius: 8px; font-size: 11px; display: inline-block; margin-bottom: 10px; font-weight: bold; }
+    .exec-box { width: 100%; margin-top: 10px; background: rgba(242, 184, 75, 0.05); border: 1px solid rgba(242, 184, 75, 0.3); border-radius: 12px; padding: 12px; }
+    .exec-box h5 { margin: 0 0 8px 0; color: var(--amber); font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
+    .exec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .exec-card { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; font-size: 12px; border-left: 3px solid; }
+    .exec-card.buy { border-color: var(--green); }
+    .exec-card.sell { border-color: var(--red); }
+    .exec-card b { display: block; margin-bottom: 4px; }
+    .exec-card .val { color: #fff; margin-bottom: 2px; }
+    .oco-note { font-size: 11px; color: var(--muted); margin-top: 8px; font-style: italic; }
+
+    .forex-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; border-top: 1px dashed rgba(255,255,255,.1); padding-top: 10px; width: 100%; }
+    .forex-card { background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 8px; flex: 1 1 120px; font-size: 11px; }
+    .forex-card.long { border-left: 3px solid var(--green); }
+    .forex-card.long b { color: var(--green) !important; }
+    .forex-card.short { border-left: 3px solid var(--red); }
+    .forex-card.short b { color: var(--red) !important; }
+    .forex-card b { font-size: 12px; }
+    .forex-card .val { color: #fff; }
+    .validity { width: 100%; color: #ffc96b; font-weight: bold; margin-bottom: 5px; font-size:12px; }
+</style>
+</head>
+<body><main class="shell">
+  <header class="glass">
+    <div class="brand">
+      <div class="logo">F</div>
+      <div>
+        <h1>shidiqpiy</h1>
+        <p>XAUUSD macro news intelligence, Forex, Crypto</p>
+      </div>
+    </div>
+    
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div id="xauusd-price-widget" style="background: rgba(0,0,0,0.2); border: 1px solid var(--line); padding: 10px 14px; border-radius: 12px; min-width: 140px;"></div>
+      <div class="live"><i class="dot"></i><span id="liveText">SYNCING DATA</span></div>
+    </div>
+  </header>
+  
+  <section class="hero"><article class="intro glass"><div class="eyebrow">Waktu Indonesia Tengah</div><h2>Global-moving news,<br><span>in the right order.</span></h2><p>A chronological monthly calendar focused on Global events that can move XAUUSD. Every scenario is converted to Waktu Indonesia Tengah and explained before a directional bias is shown.</p><div class="stats"><div class="stat"><b id="eventCount">—</b><span>events this month</span></div><div class="stat"><b id="highCount">—</b><span>high-impact releases</span></div><div class="stat"><b>WITA</b><span>Asia/Makassar • UTC+8</span></div></div></article><aside class="next"><div><div class="eyebrow">Next gold catalyst</div><h3 id="nextName">Finding next event…</h3><small id="nextTime">Waktu Indonesia Tengah</small></div><div><div class="countdown" id="countdown">--:--:--</div><small>until scheduled release</small></div></aside></section>
+  <nav class="toolbar glass"><div class="filters"><button class="chip active" data-filter="all">Full month</button><button class="chip" data-filter="upcoming">Upcoming</button><button class="chip" data-filter="high">High impact</button></div><span class="status" id="status">Loading calendar…</span><button class="refresh" id="refresh">↻ Refresh</button></nav>
+  <div class="section-head"><div><h3 id="monthTitle">Economic calendar</h3><p>Oldest to newest • times shown in WITA</p></div></div>
+  <section id="calendar" class="timeline"></section>
+  <div class="footer">Educational scenario analysis only—not financial advice. A scheduled event does not guarantee direction; wait for the actual release and price confirmation.</div>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function num(v) {
+    if (v === null || v === undefined || String(v).trim() === '' || v === '-' || v === '—') return null;
+    const raw = String(v).trim().replace(/,/g, '');
+    const m = raw.match(/^([+-]?\d*\.?\d+)\s*([KMB])?%?$/i);
+    let n, suf = '';
+    if (m) { n = Number(m[1]); suf = (m[2] || '').toUpperCase(); }
+    else n = Number(raw.replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(n)) return null;
+    if (suf === 'K') n *= 1e3;
+    if (suf === 'M') n *= 1e6;
+    if (suf === 'B') n *= 1e9;
+    return n;
+}
+function countryCode(c) {
+    const u = String(c || 'USD').trim().toUpperCase();
+    return ({ 'UNITED STATES': 'USD', US: 'USD', USA: 'USD', CANADA: 'CAD', CA: 'CAD', EUROZONE: 'EUR', 'EURO AREA': 'EUR', UK: 'GBP', 'UNITED KINGDOM': 'GBP', JAPAN: 'JPY', AUSTRALIA: 'AUD', 'NEW ZEALAND': 'NZD' }[u] || u);
+}
+const WITA = 'Asia/Makassar';
+
+let events = [], filter = 'all', timer;
+let LIVE_PRICE = null;
+let FOREX_RATES = {};
+let CRYPTO_RATES = {};
+window.applyLiveXauPrice = function (price) {
+    const p = Number(price);
+    if (!Number.isFinite(p) || p <= 0) return;
+    if (LIVE_PRICE === p) return;
+    LIVE_PRICE = p;
+    if (events.length) render();
+};
+
+const fmtDate = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, weekday: 'short', day: '2-digit', month: 'short' }).format(d);
+const fmtTime = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, hour: '2-digit', minute: '2-digit', hour12: false }).format(d) + ' WITA';
+
+async function loadForex() {
+    try {
+        const r = await fetch('https://open.er-api.com/v6/latest/USD');
+        const j = await r.json();
+        if (j.rates) { FOREX_RATES = j.rates; render(); }
+    } catch (e) { console.log('Forex API failed', e); }
+}
+
+async function loadCrypto() {
+    const apply = (btc, eth) => {
+        const b = Number(btc), e = Number(eth);
+        if (!Number.isFinite(b) || !Number.isFinite(e)) return false;
+        CRYPTO_RATES = { 'BTC/USD': b, 'ETH/USD': e };
+        render();
+        return true;
+    };
+    try {
+        const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]');
+        const j = await r.json();
+        if (Array.isArray(j)) {
+            const btc = j.find(x => x.symbol === 'BTCUSDT');
+            const eth = j.find(x => x.symbol === 'ETHUSDT');
+            if (btc && eth && apply(btc.price, eth.price)) return;
+        }
+    } catch (e) { console.log('Binance crypto API failed', e); }
+    try {
+        const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd');
+        const j = await r.json();
+        apply(j.bitcoin?.usd, j.ethereum?.usd);
+    } catch (e) { console.log('Crypto API failed', e); }
+}
+
+function goldBias(name, surprise, country) {
+    const laborSoft = /unemployment rate|unemployment|initial claims|continuing claims|jobless claims|jobless/.test(name);
+    const usdSoftIfHigh = /cpi|inflation|pce|pmi|ism|retail sales|consumer confidence|fed funds|interest rate|rate decision|jolts|durable goods|nonfarm payroll|non-farm payroll|nfp|payroll|gdp|adp|employment/.test(name);
+    if (country === 'USD') {
+        if (laborSoft) return surprise > 0;
+        if (usdSoftIfHigh) return surprise < 0;
+        return null;
+    }
+    if (laborSoft) return surprise < 0;
+    if (usdSoftIfHigh) return surprise > 0;
+    return null;
+}
+
+function analyze(e) {
+    const name = (e.Event || e.Category || '').toLowerCase();
+    const country = countryCode(e.Country);
+    const forecast = num(e.Forecast || e.TEForecast);
+    const actual = num(e.Actual);
+    const impact = +e.Importance || 1;
+
+    if (actual === null || forecast === null) {
+        return { dir: 'wait', score: Math.max(35, 48 - impact * 2), reason: 'Directional signal requires both Actual and Forecast values. Live market quotes below are watch levels until the release prints.' };
+    }
+
+    const surprise = actual - forecast;
+    const threshold = Math.max(Math.abs(forecast) * 0.005, 0.01);
+    if (Math.abs(surprise) < threshold) {
+        return { dir: 'wait', score: 45, reason: `Actual ${actual} vs Forecast ${forecast}: no meaningful economic surprise.` };
+    }
+
+    const goldBullish = goldBias(name, surprise, country);
+    if (goldBullish === null) {
+        return { dir: 'wait', score: 40, reason: `${name} has no predefined XAUUSD economic-impact mapping.` };
+    }
+
+    const strength = Math.min(40, Math.round(Math.abs(surprise) / threshold * 10));
+    const score = Math.min(95, Math.max(55, 55 + strength));
+    return { dir: goldBullish ? 'long' : 'short', score, reason: `Actual ${actual} vs Forecast ${forecast}. ${goldBullish ? `Data ${country} weaker for USD / stronger for FX → Gold bullish bias.` : `Data ${country} stronger for USD / weaker for FX → Gold bearish bias.`}` };
+}
+
+function normalize(e) {
+    return { ...e, Date: e.Date || e.date, Event: e.Event || e.event || e.Category || 'Economic release', Country: countryCode(e.Country || e.country), Importance: +e.Importance || +e.importance || 1, Forecast: e.Forecast || e.forecast || e.TEForecast || '', Previous: e.Previous || e.previous || '', Actual: e.Actual || e.actual || '' };
+}
+
+function pairRate(pair) {
+    if (pair === 'EUR/USD') return FOREX_RATES.EUR ? 1 / FOREX_RATES.EUR : null;
+    if (pair === 'GBP/USD') return FOREX_RATES.GBP ? 1 / FOREX_RATES.GBP : null;
+    if (pair === 'AUD/USD') return FOREX_RATES.AUD ? 1 / FOREX_RATES.AUD : null;
+    if (pair === 'USD/JPY') return FOREX_RATES.JPY || null;
+    if (pair === 'USD/CHF') return FOREX_RATES.CHF || null;
+    if (pair === 'USD/CAD') return FOREX_RATES.CAD || null;
+    return null;
+}
+
+function tpSl(a, e) {
+    if (!LIVE_PRICE) return '';
+    const directed = a.dir === 'long' || a.dir === 'short';
+    const upcoming = !String(e.Actual ?? '').trim();
+    const impact = +e.Importance || 1;
+    
+    if (!directed && !(upcoming && impact >= 2)) return '';
+
+    const isUSDWeak = a.dir === 'long';
+    const validUntil = fmtDate(new Date(e.Date)) + ' pukul ' + fmtTime(new Date(e.Date));
+    const f = n => n.toFixed(2);
+    
+    const eventTime = new Date(e.Date).getTime();
+    const isExpired = new Date().getTime() > eventTime;
+
+    let html = `<div class="tpsl" style="display:flex; flex-direction:column; gap:10px;">`;
+
+    if (directed) {
+        const riskPct = 0.5, rewardPct = 1.0;
+        const entry = LIVE_PRICE;
+        const sl = isUSDWeak ? entry * (1 - riskPct/100) : entry * (1 + riskPct/100);
+        const tp = isUSDWeak ? entry * (1 + rewardPct/100) : entry * (1 - rewardPct/100);
+
+        html += `<div class="validity">⚠️ Entry pasar riil ${a.dir.toUpperCase()} — valid hingga ${validUntil}</div>`;
+        html += `<div style="display:flex; gap:14px; flex-wrap:wrap;">`;
+        html += `<span style="color:#72d4e4; font-weight:bold; width:100%;">XAU/USD (Gold)</span>`;
+        html += `<span><b>Entry</b> ${f(entry)}</span><span><b>SL</b> ${f(sl)}</span><span><b>TP</b> ${f(tp)}</span><span><b>R:R</b> 1:2.0</span>`;
+        html += `</div>`;
+    } else {
+        if (isExpired) {
+            html += `<div class="expired-badge">⏳ Menunggu data Actual (Rilis sedang berlangsung).</div>`;
+            html += `<div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)}</div>`;
+        } else {
+            const buffer = LIVE_PRICE * 0.0015;
+            const buyStop = LIVE_PRICE + buffer;
+            const sellStop = LIVE_PRICE - buffer;
+            const slDist = buffer * 2.0;
+            const tpDist = buffer * 4.0;
+
+            const buySL = buyStop - slDist;
+            const buyTP = buyStop + tpDist;
+            const sellSL = sellStop + slDist;
+            const sellTP = sellStop - tpDist;
+
+            if (impact >= 3) {
+                html += `<div class="warning-badge">⚠️ HIGH IMPACT NEWS: Spread akan melebar. Gunakan Pending Order!</div>`;
+            }
+
+            html += `<div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)} — Siapkan order 5 menit sebelum rilis (${validUntil})</div>`;
+
+            html += `<div class="exec-box">
+                <h5>STRATEGI STRADDLE (OCO)</h5>
+                <div class="exec-grid">
+                    <div class="exec-card buy">
+                        <b>BUY STOP (LONG)</b>
+                        <div class="val">Entry: ${f(buyStop)}</div>
+                        <div class="val" style="color:var(--red)">SL: ${f(buySL)}</div>
+                        <div class="val" style="color:var(--green)">TP: ${f(buyTP)}</div>
+                    </div>
+                    <div class="exec-card sell">
+                        <b>SELL STOP (SHORT)</b>
+                        <div class="val">Entry: ${f(sellStop)}</div>
+                        <div class="val" style="color:var(--red)">SL: ${f(sellSL)}</div>
+                        <div class="val" style="color:var(--green)">TP: ${f(sellTP)}</div>
+                    </div>
+                </div>
+                <div class="oco-note">*OCO: Jika salah satu order tersentuh, batalkan order lainnya.</div>
+            </div>`;
+        }
+    }
+
+    const statusText = directed ? `(USD ${isUSDWeak ? 'Melemah' : 'Menguat'})` : (isExpired ? '(Spot Prices - News Ended)' : '(Straddle Level)');
+
+    if (Object.keys(FOREX_RATES).length > 0) {
+        const forexPairs = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'];
+        html += `<div class="forex-container"><span style="color:#72d4e4; font-weight:bold; width:100%;">Forex Majors ${statusText}</span>`;
+        forexPairs.forEach(pair => {
+            const rate = pairRate(pair);
+            if (!rate) return;
+            const isJpyStyle = rate > 10;
+            const slDist = isJpyStyle ? 0.30 : 0.0030;
+            const tpDist = isJpyStyle ? 0.60 : 0.0060;
+            const dec = isJpyStyle ? 3 : 5;
+            
+            if (!directed) {
+                if (isExpired) {
+                    html += `<div class="forex-card"><div>${pair} <b>WATCH</b></div><div class="val">Spot: ${rate.toFixed(dec)}</div></div>`;
+                    return;
+                }
+                const buffer = isJpyStyle ? 0.15 : 0.0015;
+                const pipMultiplier = isJpyStyle ? 100 : 10000;
+                html += `<div class="forex-card" style="border-left-color: var(--amber);">
+                    <div>${pair} <b style="color:var(--amber)">STRADDLE</b></div>
+                    <div class="val" style="color:var(--green); font-size:11px;">B.STOP: ${(rate + buffer).toFixed(dec)}</div>
+                    <div class="val" style="color:var(--red); font-size:11px;">S.STOP: ${(rate - buffer).toFixed(dec)}</div>
+                    <div class="val" style="color:var(--muted); font-size:9px;">SL/TP: ${slDist*pipMultiplier}/${tpDist*pipMultiplier} pips</div>
+                </div>`;
+                return;
+            }
+            
+            const dir = pair.startsWith('USD/') ? (isUSDWeak ? 'SHORT' : 'LONG') : (isUSDWeak ? 'LONG' : 'SHORT');
+            const fxSl = dir === 'LONG' ? rate - slDist : rate + slDist;
+            const fxTp = dir === 'LONG' ? rate + tpDist : rate - tpDist;
+            const cls = dir === 'LONG' ? 'long' : 'short';
+            html += `<div class="forex-card ${cls}"><div>${pair} <b>${dir}</b></div><div class="val">Entry: ${rate.toFixed(dec)}</div><div class="val" style="color:var(--red)">SL: ${fxSl.toFixed(dec)}</div><div class="val" style="color:var(--green)">TP: ${fxTp.toFixed(dec)}</div></div>`;
+        });
+        html += `</div>`;
+    }
+
+    if (Object.keys(CRYPTO_RATES).length > 0) {
+        html += `<div class="forex-container" style="border-top: 1px dashed rgba(255,255,255,.1); margin-top: 10px; padding-top: 10px;"><span style="color:#f7931a; font-weight:bold; width:100%;">Crypto Markets ${statusText}</span>`;
+        ['BTC/USD', 'ETH/USD'].forEach(pair => {
+            const rate = CRYPTO_RATES[pair];
+            if (!rate) return;
+            const fmt = n => n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const isBTC = pair === 'BTC/USD';
+            const bColor = isBTC ? '#f7931a' : '#627eea';
+            
+            if (!directed) {
+                if (isExpired) {
+                    html += `<div class="forex-card" style="border-left-color: ${bColor};"><div>${pair} <b>WATCH</b></div><div class="val">Spot: $${fmt(rate)}</div></div>`;
+                    return;
+                }
+                const bufferPct = isBTC ? 0.3 : 0.5;
+                const slPct = bufferPct * 2;
+                const tpPct = bufferPct * 4;
+                html += `<div class="forex-card" style="border-left-color: var(--amber);">
+                    <div>${pair} <b style="color:var(--amber)">STRADDLE</b></div>
+                    <div class="val" style="color:var(--green); font-size:11px;">B.STOP: $${fmt(rate * (1 + bufferPct/100))}</div>
+                    <div class="val" style="color:var(--red); font-size:11px;">S.STOP: $${fmt(rate * (1 - bufferPct/100))}</div>
+                    <div class="val" style="color:var(--muted); font-size:9px;">SL/TP: ${slPct}% / ${tpPct}%</div>
+                </div>`;
+                return;
+            }
+            
+            const dir = isUSDWeak ? 'LONG' : 'SHORT';
+            const slPct = isBTC ? 1.0 : 1.5;
+            const tpPct = isBTC ? 2.0 : 3.0;
+            const fxSl = dir === 'LONG' ? rate * (1 - slPct/100) : rate * (1 + slPct/100);
+            const fxTp = dir === 'LONG' ? rate * (1 + tpPct/100) : rate * (1 - tpPct/100);
+            const cls = dir === 'LONG' ? 'long' : 'short';
+            html += `<div class="forex-card ${cls}" style="border-left-color: ${bColor};"><div>${pair} <b>${dir}</b></div><div class="val">Entry: $${fmt(rate)}</div><div class="val" style="color:var(--red)">SL: $${fmt(fxSl)}</div><div class="val" style="color:var(--green)">TP: ${fmt(fxTp)}</div></div>`;
+        });
+        html += `</div>`;
+    }
+
+    html += `</div>`;
+    return html;
+}
+
+function card(e) {
+    const a = analyze(e);
+    const color = a.dir === 'long' ? 'var(--green)' : a.dir === 'short' ? 'var(--red)' : 'var(--amber)';
+    return `<article class="event glass">
+        <div class="event-title">
+            <div class="flag">${e.Country==='USD'?'🇺🇸':e.Country==='EUR'?'🇪🇺':e.Country==='GBP'?'🇬🇧':e.Country==='JPY'?'🇯🇵':e.Country==='AUD'?'🇦🇺':e.Country==='NZD'?'🇳🇿':e.Country==='CAD'?'🇨🇦':'🌐'}</div>
+            <div><h4>${esc(e.Event)}</h4><p>${esc(e.Country)} • ${fmtTime(new Date(e.Date))}</p></div>
+        </div>
+        <div class="metric"><span>Previous</span><b>${esc(e.Previous)}</b></div>
+        <div class="metric"><span>Forecast</span><b>${esc(e.Forecast)}</b></div>
+        <div class="metric"><span>Actual</span><b>${esc(e.Actual)}</b></div>
+        <div>
+            <span class="impact">${e.Importance>=3?'HIGH':e.Importance>=2?'MEDIUM':'LOW'}</span>
+            <div class="signal ${a.dir}"><b>${a.dir==='long'?'LONG':a.dir==='short'?'SHORT':'WAIT'}</b><small>${a.score}% confidence</small></div>
+        </div>
+        <div class="expand">
+            <div class="reason"><b>shidiqpiy scenario</b><p>${esc(a.reason)}</p></div>
+            <div class="meter-row"><div class="meter"><i style="--score:${a.score}%;--meter:${color}"></i></div><span class="score" style="--meter:${color}">${a.score}</span></div>
+        </div>
+        ${tpSl(a, e)}
+    </article>`;
+}
+
+async function load() {
+    $('#status').textContent = 'Fetching latest calendar...';
+    try {
+        let raw = [];
+        try {
+            const r = await fetch(`data/calendar.json?v=${Date.now()}`, { cache: 'no-store' });
+            if (r.ok) { const j = await r.json(); raw = Array.isArray(j) ? j : j.events || []; }
+        } catch {}
+
+        if (!raw.length) {
+            const urls = ['https://nfs.faireconomy.media/ff_calendar_thisweek.json', 'https://nfs.faireconomy.media/ff_calendar_nextweek.json'];
+            const batches = await Promise.all(urls.map(async u => { const r = await fetch(u, { cache: 'no-store' }); return r.ok ? r.json() : []; }));
+            const rank = { Low: 1, Medium: 2, High: 3 };
+            const keywords = /fed|fomc|interest rate|inflation|cpi|pce|payroll|employment|unemployment|jobless|gdp|pmi|ism|retail sales|consumer confidence|jolts|durable goods|powell|treasury|oil|crude|energy|gas|opec|eia|rig|inventories|distillate|gasoline/i;
+            const allowedCountries = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD'];
+            raw = batches.flat().filter(e => allowedCountries.includes(String(e.country || '').toUpperCase()) && keywords.test(e.title || '')).map(e => ({
+                Date: e.date, Event: e.title, Country: e.country, Importance: rank[e.impact] || 1, Forecast: e.forecast || '', Previous: e.previous || '', Actual: e.actual || ''
+            }));
+        }
+
+        events = raw.map(normalize).filter(e => e.Date && !isNaN(new Date(e.Date))).sort((a, b) => new Date(a.Date) - new Date(b.Date));
+        if (!events.length) throw Error('No events returned');
+
+        $('#status').textContent = `Live - ${new Intl.DateTimeFormat('en-IN', { timeZone: WITA, dateStyle: 'medium', timeStyle: 'short' }).format(new Date())}`;
+        $('#liveText').textContent = 'LIVE CALENDAR';
+    } catch (err) {
+        events = [];
+        $('#status').textContent = 'Live feed unavailable - run GitHub updater';
+        $('#liveText').textContent = 'FEED OFFLINE';
+    }
+    render();
+}
+
+function render() {
+    const now = new Date();
+    if (!['upcoming', 'high', 'history'].includes(filter)) filter = 'all';
+    
+    // FITUR BARU: Sembunyikan berita jika sudah lewat 2 jam DAN Actual masih kosong
+    let list = events.filter(e => {
+        const eventTime = new Date(e.Date).getTime();
+        const isExpiredTwoHours = now.getTime() > (eventTime + 2 * 60 * 60 * 1000);
+        const isActualMissing = !String(e.Actual ?? '').trim();
+        
+        if (isExpiredTwoHours && isActualMissing) return false; // Jangan tampilkan jika basi & tidak ada hasil
+
+        return filter === 'all' || (filter === 'upcoming' && new Date(e.Date) >= now) || (filter === 'high' && e.Importance >= 3);
+    });
+    
+    $('#eventCount').textContent = events.length;
+    $('#highCount').textContent = events.filter(e => e.Importance >= 3).length;
+    $('#monthTitle').textContent = new Intl.DateTimeFormat('en-IN', { timeZone: WITA, month: 'long', year: 'numeric' }).format(events[0] ? new Date(events[0].Date) : now) + ' calendar';
+    
+    const groups = list.reduce((o, e) => {
+        const d = fmtDate(new Date(e.Date));
+        (o[d] ??= []).push(e);
+        return o;
+    }, {});
+    
+    $('#calendar').innerHTML = list.length 
+        ? Object.entries(groups).map(([day, es]) => `<div class="day"><div class="datebar"><strong>${day}</strong><span>${es.length} event${es.length > 1 ? 's' : ''}</span></div>${es.map(card).join('')}</div>`).join('')
+        : `<div class="empty glass"><h3>No events to show</h3><p>The live feed has not been generated yet or this filter has no matching releases.</p></div>`;
+        
+    const next = events.find(e => new Date(e.Date) >= now);
+    if (next) {
+        $('#nextName').textContent = next.Event;
+        $('#nextTime').textContent = fmtDate(new Date(next.Date)) + ' • ' + fmtTime(new Date(next.Date));
+    }
+    updateCountdown(next);
+}
+
+function updateCountdown(next) {
+    clearInterval(timer);
+    if (!next) { $('#countdown').textContent = '--:--:--'; return; }
+    const tick = () => {
+        const ms = new Date(next.Date) - new Date();
+        if (ms <= 0) { $('#countdown').textContent = 'LIVE'; return; }
+        const h = Math.floor(ms / 36e5), m = Math.floor(ms % 36e5 / 6e4), s = Math.floor(ms % 6e4 / 1e3);
+        $('#countdown').textContent = [h, m, s].map(x => String(x).padStart(2, '0')).join(':');
+    };
+    tick(); timer = setInterval(tick, 1000);
+}
+
+document.querySelector('.filters').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-filter]');
+    if (!b || b.dataset.filter === 'history') return;
+    window.__ferihaHistory = false;
+    document.querySelectorAll('[data-filter]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    filter = b.dataset.filter;
+    render();
+});
+
+$('#refresh').onclick = () => { load(); loadForex(); loadCrypto(); };
+load(); loadForex(); loadCrypto();
+setInterval(() => { loadForex(); loadCrypto(); }, 60000);
+</script>
+  <script src="scripts/xauusd-price-widget.js?v=202610192017"></script>
+</body>
+</html>
