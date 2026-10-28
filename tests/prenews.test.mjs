@@ -2,38 +2,66 @@ import assert from 'node:assert/strict';
 import { updatePreNewsStore } from '../scripts/fetch-calendar.mjs';
 
 const now = Date.parse('2026-10-28T00:00:00Z');
-const soon = new Date(now + 10 * 60 * 1000).toISOString();
-const later = new Date(now + 2 * 60 * 60 * 1000).toISOString();
-const passed = new Date(now - 60 * 1000).toISOString();
+const min = 60 * 1000;
+const soon = new Date(now + 10 * min).toISOString();
+const within = new Date(now + 90 * min).toISOString();
+const tooFar = new Date(now + 3 * 60 * min).toISOString();
+const passed = new Date(now - min).toISOString();
 
 const events = [
   { Date: soon, Event: 'CPI', Importance: 3 },
+  { Date: within, Event: 'Retail Sales', Importance: 2 },
   { Date: soon, Event: 'Low impact', Importance: 1 },
-  { Date: later, Event: 'Later', Importance: 3 },
+  { Date: tooFar, Event: 'Too far', Importance: 3 },
   { Date: passed, Event: 'Already out', Importance: 3 },
 ];
 
-const store = updatePreNewsStore({}, events, 4000, now);
-assert.equal(store[`${soon}|CPI`].price, 4000);
+const market = {
+  price: 4000,
+  forex: { EUR: 0.92, GBP: 0.79, JPY: 150, CHF: 0.88, AUD: 0.65, CAD: 1.36 },
+  crypto: { 'BTC/USD': 65000, 'ETH/USD': 3200 },
+};
+
+const store = updatePreNewsStore({}, events, market, now);
+assert.equal(store[`${soon}|CPI`].gold, 4000);
+assert.equal(store[`${soon}|CPI`].forex.EUR, 0.92);
+assert.equal(store[`${soon}|CPI`].crypto['BTC/USD'], 65000);
 assert.equal(store[`${soon}|CPI`].capturedAt, new Date(now).toISOString());
+assert.equal(store[`${soon}|CPI`].price, undefined);
+assert.equal(store[`${within}|Retail Sales`].gold, 4000);
 assert.equal(store[`${soon}|Low impact`], undefined);
-assert.equal(store[`${later}|Later`], undefined);
+assert.equal(store[`${tooFar}|Too far`], undefined);
 assert.equal(store[`${passed}|Already out`], undefined);
 
-const refreshed = updatePreNewsStore({ [`${soon}|CPI`]: { price: 3980, capturedAt: new Date(now - 5 * 60 * 1000).toISOString() } }, events, 4000, now);
-assert.equal(refreshed[`${soon}|CPI`].price, 4000);
+const refreshed = updatePreNewsStore({
+  [`${soon}|CPI`]: { gold: 3980, forex: { EUR: 0.94, GBP: 0.80 }, crypto: { 'BTC/USD': 62000 }, capturedAt: new Date(now - 5 * min).toISOString() },
+}, events, market, now);
+assert.equal(refreshed[`${soon}|CPI`].gold, 4000);
+assert.equal(refreshed[`${soon}|CPI`].forex.EUR, 0.92);
+assert.equal(refreshed[`${soon}|CPI`].forex.GBP, 0.79);
+assert.equal(refreshed[`${soon}|CPI`].crypto['BTC/USD'], 65000);
 
-const oldEvent = new Date(now - 8 * 24 * 60 * 60 * 1000).toISOString();
-const keptEvent = new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString();
+const oldEvent = new Date(now - 8 * 24 * 60 * min).toISOString();
+const keptEvent = new Date(now - 2 * 24 * 60 * min).toISOString();
 const oldKey = `${oldEvent}|Old`;
 const keptKey = `${keptEvent}|Keep`;
 const pruned = updatePreNewsStore({
-  [oldKey]: { price: 3900, capturedAt: oldEvent },
-  [keptKey]: { price: 3910, capturedAt: keptEvent },
+  [oldKey]: { gold: 3900, capturedAt: oldEvent },
+  [keptKey]: { gold: 3910, capturedAt: keptEvent },
 }, [], null, now);
 assert.deepEqual(Object.keys(pruned), [keptKey]);
 
-const kept = updatePreNewsStore({ [keptKey]: { price: 3910, capturedAt: keptEvent } }, events, null, now);
-assert.equal(kept[keptKey].price, 3910);
+const kept = updatePreNewsStore({ [keptKey]: { gold: 3910, capturedAt: keptEvent } }, events, null, now);
+assert.equal(kept[keptKey].gold, 3910);
 
-console.log('Passed pre-news snapshot store tests (capture, overwrite, prune, fallback)');
+// Legacy {price} entries are normalized to gold and merged with fresh forex data.
+const legacyKey = `${soon}|CPI`;
+const legacy = updatePreNewsStore({
+  [legacyKey]: { price: 3910, forex: { GBP: 0.80 }, capturedAt: new Date(now - 5 * min).toISOString() },
+}, events, { forex: { EUR: 0.93 } }, now);
+assert.equal(legacy[legacyKey].gold, 3910);
+assert.equal(legacy[legacyKey].price, undefined);
+assert.equal(legacy[legacyKey].forex.EUR, 0.93);
+assert.equal(legacy[legacyKey].forex.GBP, 0.80);
+
+console.log('Passed pre-news per-pair snapshot tests (2h window, merge, prune, fallback)');
