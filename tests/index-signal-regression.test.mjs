@@ -50,15 +50,17 @@ const newsPhaseFn = extractFunction('newsPhase');
 const postNewsMomentumFn = extractFunction('postNewsMomentum');
 const preNewsPriceFn = extractFunction('preNewsPrice');
 const eventKeyFn = extractFunction('eventKey');
+const dateEventKeyFn = extractFunction('dateEventKey');
 const postNewsExpiryFn = extractFunction('postNewsExpiry');
 
-function buildTpSl(livePrice, forexRates, cryptoRates, store) {
+function buildTpSl(livePrice, forexRates, cryptoRates, store, preNews = {}) {
   const body = `
     const WITA = 'Asia/Makassar';
     const POST_NEWS_HOLD_MS = 6 * 60 * 60 * 1000;
     const NEWS_SETTLE_MS = 60 * 1000;
     const fmtDate = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, weekday: 'short', day: '2-digit', month: 'short' }).format(d);
     const fmtTime = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, hour: '2-digit', minute: '2-digit', hour12: false }).format(d) + ' WITA';
+    ${dateEventKeyFn}
     ${eventKeyFn}
     ${preNewsPriceFn}
     ${newsPhaseFn}
@@ -68,7 +70,7 @@ function buildTpSl(livePrice, forexRates, cryptoRates, store) {
     ${tpSlFn}
     return tpSl;
   `;
-  return new Function('LIVE_PRICE', 'FOREX_RATES', 'CRYPTO_RATES', 'localStorage', body)(livePrice, forexRates, cryptoRates, store);
+  return new Function('LIVE_PRICE', 'FOREX_RATES', 'CRYPTO_RATES', 'localStorage', 'PRE_NEWS', body)(livePrice, forexRates, cryptoRates, store, preNews);
 }
 
 const forexRates = { EUR: 0.92, GBP: 0.79, JPY: 150, CHF: 0.88, AUD: 0.65, CAD: 1.36 };
@@ -91,6 +93,11 @@ assert.match(momentumHtml, /POST-NEWS BUY/);
 assert.match(momentumHtml, /XAU\/USD \(Gold\) — BUY/);
 assert.match(momentumHtml, /EUR\/USD <b>BUY<\/b>/);
 assert.match(momentumHtml, /USD\/JPY <b>SELL<\/b>/);
+
+const repoSnapshots = { [`${pastEvent.Date}|CPI`]: { price: 3950, capturedAt: pastEvent.Date } };
+const repoHtml = buildTpSl(4000, forexRates, cryptoRates, noStore, repoSnapshots)({ dir: 'wait', score: 40 }, pastEvent);
+assert.match(repoHtml, /POST-NEWS BUY/);
+assert.match(repoHtml, /dari 3950\.00/);
 
 const straddleHtml = buildTpSl(4000, forexRates, cryptoRates, noStore)({ dir: 'wait', score: 40 }, futureEvent);
 assert.match(straddleHtml, /STRADDLE/);

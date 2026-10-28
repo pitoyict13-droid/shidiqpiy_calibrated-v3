@@ -38,7 +38,7 @@ jobs:
       - name: Check if data changed
         id: check_diff
         run: |
-          git add data/calendar.json data/market.json
+          git add data/calendar.json data/market.json data/prenews.json
           if git diff --cached --quiet; then
             echo "Data tidak ada perubahan. Melewati proses commit."
             echo "changed=false" >> $GITHUB_OUTPUT

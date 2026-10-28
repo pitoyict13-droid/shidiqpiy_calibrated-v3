@@ -94,6 +94,7 @@ let events = [], filter = 'all', timer;
 let LIVE_PRICE = null;
 let FOREX_RATES = {};
 let CRYPTO_RATES = {};
+let PRE_NEWS = {};
 window.applyLiveXauPrice = function (price) {
     const p = Number(price);
     if (!Number.isFinite(p) || p <= 0) return;
@@ -108,8 +109,12 @@ const fmtTime = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, hour: '2
 const POST_NEWS_HOLD_MS = 6 * 60 * 60 * 1000;
 const NEWS_SETTLE_MS = 60 * 1000;
 
+function dateEventKey(e) {
+    return String(e.Date) + '|' + String(e.Event);
+}
+
 function eventKey(e) {
-    return 'feriha:prenews:' + String(e.Date) + '|' + String(e.Event);
+    return 'feriha:prenews:' + dateEventKey(e);
 }
 
 function rememberPreNewsPrice(e) {
@@ -125,8 +130,11 @@ function rememberPreNewsPrice(e) {
 function preNewsPrice(e) {
     try {
         const v = Number(localStorage.getItem(eventKey(e)));
-        return Number.isFinite(v) && v > 0 ? v : null;
-    } catch { return null; }
+        if (Number.isFinite(v) && v > 0) return v;
+    } catch {}
+    const entry = PRE_NEWS[dateEventKey(e)];
+    const v = Number(entry && typeof entry === 'object' ? entry.price : entry);
+    return Number.isFinite(v) && v > 0 ? v : null;
 }
 
 function newsPhase(e) {
@@ -147,6 +155,15 @@ function postNewsMomentum(e) {
 
 function postNewsExpiry(e) {
     return new Date(new Date(e.Date).getTime() + POST_NEWS_HOLD_MS);
+}
+
+async function loadPreNews() {
+    try {
+        const r = await fetch(`data/prenews.json?v=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) return;
+        const j = await r.json();
+        if (j && typeof j === 'object') { PRE_NEWS = j; render(); }
+    } catch (e) { console.log('Pre-news snapshots unavailable', e); }
 }
 
 async function loadForex() {
@@ -563,8 +580,8 @@ document.querySelector('.filters').addEventListener('click', ev => {
     render();
 });
 
-$('#refresh').onclick = () => { load(); loadForex(); loadCrypto(); };
-load(); loadForex(); loadCrypto();
+$('#refresh').onclick = () => { load(); loadForex(); loadCrypto(); loadPreNews(); };
+load(); loadForex(); loadCrypto(); loadPreNews();
 setInterval(() => { loadForex(); loadCrypto(); }, 60000);
 </script>
   <script src="scripts/xauusd-price-widget.js?v=202610192017"></script>

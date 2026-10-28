@@ -18,3 +18,5 @@ jobs:
         run: node tests/xauusd-signal-rules.test.mjs
       - name: Run actual index.html signal tests
         run: node tests/index-signal-regression.test.mjs
+      - name: Run pre-news snapshot store tests
+        run: node tests/prenews.test.mjs
