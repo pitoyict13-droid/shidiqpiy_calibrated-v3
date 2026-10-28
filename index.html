@@ -365,7 +365,7 @@ function tpSl(a, e) {
         html += `<div class="validity">⚠️ Entry pasar riil ${actionOf(bias)} — valid hingga ${validUntil}</div>`;
     }
 
-    if (bias) {
+    if (assets.gold && bias) {
         const riskPct = 0.5, rewardPct = 1.0;
         const entry = LIVE_PRICE;
         const sl = bias === 'long' ? entry * (1 - riskPct / 100) : entry * (1 + riskPct / 100);
@@ -376,7 +376,7 @@ function tpSl(a, e) {
         html += `<span style="color:#72d4e4; font-weight:bold; width:100%;">XAU/USD (Gold) — ${actionOf(bias)}${goldNote}</span>`;
         html += `<span><b>Entry</b> ${f(entry)}</span><span><b>SL</b> ${f(sl)}</span><span><b>TP</b> ${f(tp)}</span><span><b>R:R</b> 1:2.0</span>`;
         html += `</div>`;
-    } else if (isPre) {
+    } else if (assets.gold && isPre) {
         const buffer = LIVE_PRICE * 0.0015;
         const buyStop = LIVE_PRICE + buffer;
         const sellStop = LIVE_PRICE - buffer;
@@ -412,7 +412,7 @@ function tpSl(a, e) {
             </div>
             <div class="oco-note">*OCO: Jika salah satu order tersentuh, batalkan order lainnya.</div>
         </div>`;
-    } else {
+    } else if (assets.gold) {
         const buffer = LIVE_PRICE * 0.0025;
         const slDist = buffer * 1.5;
         const tpDist = buffer * 3.0;
@@ -490,7 +490,7 @@ function tpSl(a, e) {
         html += `</div>`;
     }
 
-    if (Object.keys(CRYPTO_RATES).length > 0) {
+    if (assets.crypto && Object.keys(CRYPTO_RATES).length > 0) {
         const cryptoStatus = directed ? `(${actionOf(a.dir)} • USD ${a.dir === 'long' ? 'Melemah' : 'Menguat'})` : isPost ? '(Momentum per pair)' : '(Straddle Level)';
         html += `<div class="forex-container" style="border-top: 1px dashed rgba(255,255,255,.1); margin-top: 10px; padding-top: 10px;"><span style="color:#f7931a; font-weight:bold; width:100%;">Crypto Markets ${cryptoStatus}</span>`;
         ['BTC/USD', 'ETH/USD'].forEach(pair => {

@@ -118,14 +118,32 @@ assert.match(usdHtml, /EUR\/USD <b>BUY<\/b>/);
 assert.match(usdHtml, /USD\/JPY <b>SELL<\/b>/);
 assert.match(usdHtml, /BTC\/USD <b>BUY<\/b>/);
 
-// AUD event: only AUD/USD gets a directional signal; gold must stay on breakout levels.
+// AUD event: only AUD/USD gets a directional signal; gold and crypto panels are hidden.
 const audHtml = buildTpSl(4000, forexRates, cryptoRates, jsonStore(baseSnapshot))({ dir: 'wait', score: 40 }, pastAud);
 assert.match(audHtml, /POST-NEWS/);
 assert.match(audHtml, /AUD\/USD <b>BUY<\/b>/);
 assert.match(audHtml, /\+1\.54%/);
-assert.doesNotMatch(audHtml, /XAU\/USD \(Gold\) — BUY/);
+assert.doesNotMatch(audHtml, /XAU\/USD/);
+assert.doesNotMatch(audHtml, /BTC\/USD/);
+assert.doesNotMatch(audHtml, /ETH\/USD/);
+assert.doesNotMatch(audHtml, /POST-NEWS BREAKOUT \(OCO\)/);
 assert.doesNotMatch(audHtml, /EUR\/USD <b>BUY<\/b>/);
 assert.doesNotMatch(audHtml, /USD\/JPY <b>SELL<\/b>/);
+
+// AUD pre-news: no gold straddle or crypto panel either.
+const futureAud = { ...futureUsd, Event: 'CPI m/m', Country: 'AUD' };
+const audStraddleHtml = buildTpSl(4000, forexRates, cryptoRates, noStore)({ dir: 'wait', score: 40 }, futureAud);
+assert.match(audStraddleHtml, /AUD\/USD/);
+assert.doesNotMatch(audStraddleHtml, /XAU\/USD/);
+assert.doesNotMatch(audStraddleHtml, /STRATEGI STRADDLE \(OCO\)/);
+assert.doesNotMatch(audStraddleHtml, /BTC\/USD/);
+assert.doesNotMatch(audStraddleHtml, /ETH\/USD/);
+
+// Directed AUD event must not leak a gold panel either.
+const audDirectedHtml = buildTpSl(4000, forexRates, cryptoRates, jsonStore(baseSnapshot))({ dir: 'long', score: 70 }, pastAud);
+assert.doesNotMatch(audDirectedHtml, /XAU\/USD/);
+assert.doesNotMatch(audDirectedHtml, /BTC\/USD/);
+assert.doesNotMatch(audDirectedHtml, /ETH\/USD/);
 
 // Legacy localStorage snapshot (gold only) is merged with per-pair repo data.
 const localGold = { getItem: () => '3900', setItem: () => {} };
