@@ -94,7 +94,7 @@
     "Event": "Crude Oil Inventories",
     "Country": "USD",
     "Importance": 1,
-    "Forecast": "-0.1M",
+    "Forecast": "0.1M",
     "Previous": "-3.1M",
     "Actual": ""
   },
@@ -166,7 +166,7 @@
     "Event": "Advance GDP Price Index q/q",
     "Country": "USD",
     "Importance": 2,
-    "Forecast": "3.3%",
+    "Forecast": "3.2%",
     "Previous": "6.2%",
     "Actual": ""
   },
@@ -184,7 +184,7 @@
     "Event": "Natural Gas Storage",
     "Country": "USD",
     "Importance": 1,
-    "Forecast": "",
+    "Forecast": "75B",
     "Previous": "77B",
     "Actual": ""
   },
