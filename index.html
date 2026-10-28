@@ -44,6 +44,18 @@
     .forex-card b { font-size: 12px; }
     .forex-card .val { color: #fff; }
     .validity { width: 100%; color: #ffc96b; font-weight: bold; margin-bottom: 5px; font-size:12px; }
+
+    .crypto-board { margin-top: 18px; border-radius: 26px; padding: 18px 22px; display: grid; grid-template-columns: minmax(210px, .85fr) 2fr; gap: 18px; align-items: center; }
+    .crypto-board h3 { font: 800 19px Manrope; margin: 4px 0 3px; letter-spacing: -.4px; }
+    .crypto-board p { margin: 0; color: var(--muted); font-size: 12px; max-width: 340px; }
+    .crypto-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .crypto-card { background: rgba(4,15,23,.42); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+    .crypto-card .pair { display: flex; justify-content: space-between; align-items: center; font: 800 14px Manrope; }
+    .crypto-card .pair small { color: var(--muted); font: 500 11px "DM Sans",sans-serif; }
+    .crypto-card .price { font: 800 22px Manrope; margin: 4px 0 2px; }
+    .crypto-card .meta { color: var(--muted); font-size: 11px; }
+    .crypto-card .meta .sep { opacity: .5; margin: 0 3px; }
+    @media(max-width:760px){ .crypto-board { grid-template-columns: 1fr; } .crypto-grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body><main class="shell">
@@ -63,6 +75,14 @@
   </header>
   
   <section class="hero"><article class="intro glass"><div class="eyebrow">Waktu Indonesia Tengah</div><h2>Global-moving news,<br><span>in the right order.</span></h2><p>A chronological monthly calendar focused on Global events that can move XAUUSD. Every scenario is converted to Waktu Indonesia Tengah and explained before a directional bias is shown.</p><div class="stats"><div class="stat"><b id="eventCount">—</b><span>events this month</span></div><div class="stat"><b id="highCount">—</b><span>high-impact releases</span></div><div class="stat"><b>WITA</b><span>Asia/Makassar • UTC+8</span></div></div></article><aside class="next"><div><div class="eyebrow">Next gold catalyst</div><h3 id="nextName">Finding next event…</h3><small id="nextTime">Waktu Indonesia Tengah</small></div><div><div class="countdown" id="countdown">--:--:--</div><small>until scheduled release</small></div></aside></section>
+  <section class="crypto-board glass" id="cryptoBoard">
+    <div>
+      <div class="eyebrow">Crypto watch</div>
+      <h3>BTC/USD &amp; ETH/USD</h3>
+      <p>Always-on crypto prices, independent of the event currency. BUY/SELL signals still come from post-news momentum on USD events; risk template BTC 1%/2%, ETH 1.5%/3%.</p>
+    </div>
+    <div class="crypto-grid" id="cryptoGrid"></div>
+  </section>
   <nav class="toolbar glass"><div class="filters"><button class="chip active" data-filter="all">Full month</button><button class="chip" data-filter="upcoming">Upcoming</button><button class="chip" data-filter="high">High impact</button></div><span class="status" id="status">Loading calendar…</span><button class="refresh" id="refresh">↻ Refresh</button></nav>
   <div class="section-head"><div><h3 id="monthTitle">Economic calendar</h3><p>Oldest to newest • times shown in WITA</p></div></div>
   <section id="calendar" class="timeline"></section>
@@ -94,6 +114,7 @@ let events = [], filter = 'all', timer;
 let LIVE_PRICE = null;
 let FOREX_RATES = {};
 let CRYPTO_RATES = {};
+let CRYPTO_CHANGE = {};
 let PRE_NEWS = {};
 window.applyLiveXauPrice = function (price) {
     const p = Number(price);
@@ -240,14 +261,52 @@ async function loadForex() {
     } catch (e) { console.log('Forex API failed', e); }
 }
 
+function cryptoBoardHtml(rates, change) {
+    const pairs = [
+        ['BTC/USD', 'Bitcoin', '#f7931a', 1.0, 2.0],
+        ['ETH/USD', 'Ethereum', '#627eea', 1.5, 3.0]
+    ];
+    const fmt = n => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const cards = pairs.map(([pair, name, color, slPct, tpPct]) => {
+        const rate = Number(rates && rates[pair]);
+        if (!Number.isFinite(rate) || rate <= 0) return '';
+        const chg = Number(change && change[pair]);
+        const chgHtml = Number.isFinite(chg)
+            ? `<span style="color:${chg >= 0 ? 'var(--green)' : 'var(--red)'}">${chg >= 0 ? '▲ +' : '▼ '}${chg.toFixed(2)}% 24h</span>`
+            : '<span>24h change n/a</span>';
+        return `<div class="crypto-card" style="border-left-color:${color}"><div class="pair"><span>${pair}</span><small>${name}</small></div><div class="price">$${fmt(rate)}</div><div class="meta">${chgHtml}<span class="sep">•</span>SL/TP ${slPct}% / ${tpPct}%</div></div>`;
+    }).filter(Boolean).join('');
+    return cards || '<div class="crypto-card"><div class="pair"><span>BTC/USD · ETH/USD</span></div><div class="meta">Menunggu harga crypto…</div></div>';
+}
+
+function renderCryptoBoard() {
+    const grid = $('#cryptoGrid');
+    if (grid) grid.innerHTML = cryptoBoardHtml(CRYPTO_RATES, CRYPTO_CHANGE);
+}
+
 async function loadCrypto() {
-    const apply = (btc, eth) => {
+    const apply = (btc, eth, btcChg, ethChg) => {
         const b = Number(btc), e = Number(eth);
-        if (!Number.isFinite(b) || !Number.isFinite(e)) return false;
+        if (!Number.isFinite(b) || !Number.isFinite(e) || b <= 0 || e <= 0) return false;
         CRYPTO_RATES = { 'BTC/USD': b, 'ETH/USD': e };
+        const chg = {};
+        const bc = Number(btcChg), ec = Number(ethChg);
+        if (Number.isFinite(bc)) chg['BTC/USD'] = bc;
+        if (Number.isFinite(ec)) chg['ETH/USD'] = ec;
+        CRYPTO_CHANGE = chg;
+        renderCryptoBoard();
         render();
         return true;
     };
+    try {
+        const r = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]');
+        const j = await r.json();
+        if (Array.isArray(j)) {
+            const btc = j.find(x => x.symbol === 'BTCUSDT');
+            const eth = j.find(x => x.symbol === 'ETHUSDT');
+            if (btc && eth && apply(btc.lastPrice, eth.lastPrice, btc.priceChangePercent, eth.priceChangePercent)) return;
+        }
+    } catch (e) { console.log('Binance 24h crypto API failed', e); }
     try {
         const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]');
         const j = await r.json();
@@ -258,9 +317,9 @@ async function loadCrypto() {
         }
     } catch (e) { console.log('Binance crypto API failed', e); }
     try {
-        const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd');
+        const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true');
         const j = await r.json();
-        apply(j.bitcoin?.usd, j.ethereum?.usd);
+        apply(j.bitcoin?.usd, j.ethereum?.usd, j.bitcoin?.usd_24h_change, j.ethereum?.usd_24h_change);
     } catch (e) { console.log('Crypto API failed', e); }
 }
 
@@ -665,6 +724,7 @@ document.querySelector('.filters').addEventListener('click', ev => {
 });
 
 $('#refresh').onclick = () => { load(); loadForex(); loadCrypto(); loadPreNews(); };
+renderCryptoBoard();
 load(); loadForex(); loadCrypto(); loadPreNews();
 setInterval(() => { loadForex(); loadCrypto(); }, 60000);
 </script>

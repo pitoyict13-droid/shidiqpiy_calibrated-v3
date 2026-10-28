@@ -176,3 +176,35 @@ assert.match(staleHtml, /kedaluwarsa/);
 assert.doesNotMatch(staleHtml, /BUY/);
 
 console.log('Passed post-news per-pair momentum + TP tests');
+
+// Global crypto board: always visible outside event cards.
+const boardStart = source.indexOf('id="cryptoBoard"');
+const calendarStart = source.indexOf('id="calendar"');
+assert.ok(boardStart > -1, 'crypto board section missing');
+assert.ok(calendarStart > -1 && boardStart < calendarStart, 'crypto board must render before the calendar');
+
+const cryptoBoardFn = extractFunction('cryptoBoardHtml');
+const cryptoBoardHtml = new Function(`${cryptoBoardFn}\nreturn cryptoBoardHtml;`)();
+
+const boardHtml = cryptoBoardHtml(
+  { 'BTC/USD': 80934.65, 'ETH/USD': 3200.5 },
+  { 'BTC/USD': 1.234, 'ETH/USD': -0.5 }
+);
+assert.match(boardHtml, /BTC\/USD/);
+assert.match(boardHtml, /\$80,934\.65/);
+assert.match(boardHtml, /\$3,200\.50/);
+assert.match(boardHtml, /▲ \+1\.23% 24h/);
+assert.match(boardHtml, /▼ -0\.50% 24h/);
+assert.match(boardHtml, /SL\/TP 1% \/ 2%/);
+assert.match(boardHtml, /SL\/TP 1\.5% \/ 3%/);
+
+const boardNoChange = cryptoBoardHtml({ 'BTC/USD': 80000, 'ETH/USD': 3000 }, {});
+assert.match(boardNoChange, /24h change n\/a/);
+assert.doesNotMatch(boardNoChange, /NaN/);
+
+const boardEmpty = cryptoBoardHtml({}, {});
+assert.match(boardEmpty, /Menunggu harga crypto/);
+assert.doesNotMatch(boardEmpty, /NaN|\$undefined/);
+
+console.log('Passed global crypto board tests');
+
