@@ -24,6 +24,7 @@
     .tpsl{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;padding:10px 14px;border-radius:14px;background:rgba(43,157,181,.10);border:1px dashed rgba(114,212,228,.35);font-size:13px;color:#cfe9ef}.tpsl b{color:#72d4e4;margin-right:6px;font-weight:800}.tpsl span{background:rgba(4,14,21,.4);padding:5px 10px;border-radius:8px}
     .warning-badge { background: rgba(255,100,125,0.15); color: var(--red); border: 1px solid rgba(255,100,125,0.3); padding: 5px 10px; border-radius: 8px; font-size: 11px; display: inline-block; margin-bottom: 10px; font-weight: bold; }
     .expired-badge { background: rgba(145,174,184,0.15); color: var(--muted); border: 1px solid rgba(145,174,184,0.3); padding: 5px 10px; border-radius: 8px; font-size: 11px; display: inline-block; margin-bottom: 10px; font-weight: bold; }
+    .postnews-badge { background: rgba(24,209,154,0.12); color: var(--green); border: 1px solid rgba(24,209,154,0.35); padding: 6px 10px; border-radius: 8px; font-size: 11px; display: inline-block; font-weight: bold; }
     .exec-box { width: 100%; margin-top: 10px; background: rgba(242, 184, 75, 0.05); border: 1px solid rgba(242, 184, 75, 0.3); border-radius: 12px; padding: 12px; }
     .exec-box h5 { margin: 0 0 8px 0; color: var(--amber); font-size: 13px; display: flex; justify-content: space-between; align-items: center; }
     .exec-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -103,6 +104,50 @@ window.applyLiveXauPrice = function (price) {
 
 const fmtDate = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, weekday: 'short', day: '2-digit', month: 'short' }).format(d);
 const fmtTime = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, hour: '2-digit', minute: '2-digit', hour12: false }).format(d) + ' WITA';
+
+const POST_NEWS_HOLD_MS = 6 * 60 * 60 * 1000;
+const NEWS_SETTLE_MS = 60 * 1000;
+
+function eventKey(e) {
+    return 'feriha:prenews:' + String(e.Date) + '|' + String(e.Event);
+}
+
+function rememberPreNewsPrice(e) {
+    if (!LIVE_PRICE) return;
+    const t = new Date(e.Date).getTime();
+    if (!Number.isFinite(t)) return;
+    const now = Date.now();
+    // Simpan harga tick terakhir sebelum rilis (maks. 1 jam sebelum jadwal) sebagai basis momentum.
+    if (now >= t || t - now > 60 * 60 * 1000) return;
+    try { localStorage.setItem(eventKey(e), String(LIVE_PRICE)); } catch {}
+}
+
+function preNewsPrice(e) {
+    try {
+        const v = Number(localStorage.getItem(eventKey(e)));
+        return Number.isFinite(v) && v > 0 ? v : null;
+    } catch { return null; }
+}
+
+function newsPhase(e) {
+    const t = new Date(e.Date).getTime();
+    if (!Number.isFinite(t)) return 'pre';
+    const now = Date.now();
+    if (now < t) return 'pre';
+    if (now < t + NEWS_SETTLE_MS) return 'live';
+    return 'post';
+}
+
+function postNewsMomentum(e) {
+    const base = preNewsPrice(e);
+    if (!base || !LIVE_PRICE) return null;
+    const changePct = (LIVE_PRICE - base) / base * 100;
+    return { dir: Math.abs(changePct) < 0.1 ? null : (changePct > 0 ? 'long' : 'short'), changePct, base };
+}
+
+function postNewsExpiry(e) {
+    return new Date(new Date(e.Date).getTime() + POST_NEWS_HOLD_MS);
+}
 
 async function loadForex() {
     try {
@@ -193,79 +238,126 @@ function pairRate(pair) {
 function tpSl(a, e) {
     if (!LIVE_PRICE) return '';
     const directed = a.dir === 'long' || a.dir === 'short';
-    const upcoming = !String(e.Actual ?? '').trim();
     const impact = +e.Importance || 1;
-    
-    if (!directed && !(upcoming && impact >= 2)) return '';
+    if (!directed && impact < 2) return '';
 
-    const isUSDWeak = a.dir === 'long';
-    const validUntil = fmtDate(new Date(e.Date)) + ' pukul ' + fmtTime(new Date(e.Date));
+    const phase = newsPhase(e);
+    const isPre = phase === 'pre';
+    const isPost = phase === 'post';
+    const actionOf = d => d === 'long' ? 'BUY' : 'SELL';
     const f = n => n.toFixed(2);
-    
-    const eventTime = new Date(e.Date).getTime();
-    const isExpired = new Date().getTime() > eventTime;
+
+    if (phase === 'live') {
+        return `<div class="tpsl" style="display:flex; flex-direction:column; gap:10px;">
+            <div class="expired-badge">⏳ Rilis berlangsung — sinyal BUY/SELL tampil setelah impact terkonfirmasi.</div>
+            <div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)}</div>
+        </div>`;
+    }
+
+    if (isPost && Date.now() > postNewsExpiry(e).getTime()) {
+        return `<div class="tpsl" style="display:flex; flex-direction:column; gap:10px;">
+            <div class="expired-badge">⌛ Sinyal pasca-news kedaluwarsa (lebih dari 6 jam). Tunggu katalis berikutnya.</div>
+            <div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)}</div>
+        </div>`;
+    }
+
+    const momentum = isPost ? postNewsMomentum(e) : null;
+    const bias = directed ? a.dir : (momentum && momentum.dir ? momentum.dir : null);
+    const validUntil = fmtDate(new Date(e.Date)) + ' pukul ' + fmtTime(new Date(e.Date));
+    const postValidUntil = fmtDate(postNewsExpiry(e)) + ' ' + fmtTime(postNewsExpiry(e));
+    const momText = momentum ? ` • Gold ${momentum.changePct >= 0 ? '+' : ''}${momentum.changePct.toFixed(2)}% dari ${f(momentum.base)}` : '';
 
     let html = `<div class="tpsl" style="display:flex; flex-direction:column; gap:10px;">`;
 
-    if (directed) {
-        const riskPct = 0.5, rewardPct = 1.0;
-        const entry = LIVE_PRICE;
-        const sl = isUSDWeak ? entry * (1 - riskPct/100) : entry * (1 + riskPct/100);
-        const tp = isUSDWeak ? entry * (1 + rewardPct/100) : entry * (1 - rewardPct/100);
-
-        html += `<div class="validity">⚠️ Entry pasar riil ${a.dir.toUpperCase()} — valid hingga ${validUntil}</div>`;
-        html += `<div style="display:flex; gap:14px; flex-wrap:wrap;">`;
-        html += `<span style="color:#72d4e4; font-weight:bold; width:100%;">XAU/USD (Gold)</span>`;
-        html += `<span><b>Entry</b> ${f(entry)}</span><span><b>SL</b> ${f(sl)}</span><span><b>TP</b> ${f(tp)}</span><span><b>R:R</b> 1:2.0</span>`;
-        html += `</div>`;
-    } else {
-        if (isExpired) {
-            html += `<div class="expired-badge">⏳ Menunggu data Actual (Rilis sedang berlangsung).</div>`;
-            html += `<div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)}</div>`;
-        } else {
-            const buffer = LIVE_PRICE * 0.0015;
-            const buyStop = LIVE_PRICE + buffer;
-            const sellStop = LIVE_PRICE - buffer;
-            const slDist = buffer * 2.0;
-            const tpDist = buffer * 4.0;
-
-            const buySL = buyStop - slDist;
-            const buyTP = buyStop + tpDist;
-            const sellSL = sellStop + slDist;
-            const sellTP = sellStop - tpDist;
-
-            if (impact >= 3) {
-                html += `<div class="warning-badge">⚠️ HIGH IMPACT NEWS: Spread akan melebar. Gunakan Pending Order!</div>`;
-            }
-
-            html += `<div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)} — Siapkan order 5 menit sebelum rilis (${validUntil})</div>`;
-
-            html += `<div class="exec-box">
-                <h5>STRATEGI STRADDLE (OCO)</h5>
-                <div class="exec-grid">
-                    <div class="exec-card buy">
-                        <b>BUY STOP (LONG)</b>
-                        <div class="val">Entry: ${f(buyStop)}</div>
-                        <div class="val" style="color:var(--red)">SL: ${f(buySL)}</div>
-                        <div class="val" style="color:var(--green)">TP: ${f(buyTP)}</div>
-                    </div>
-                    <div class="exec-card sell">
-                        <b>SELL STOP (SHORT)</b>
-                        <div class="val">Entry: ${f(sellStop)}</div>
-                        <div class="val" style="color:var(--red)">SL: ${f(sellSL)}</div>
-                        <div class="val" style="color:var(--green)">TP: ${f(sellTP)}</div>
-                    </div>
-                </div>
-                <div class="oco-note">*OCO: Jika salah satu order tersentuh, batalkan order lainnya.</div>
-            </div>`;
-        }
+    if (isPost) {
+        html += bias
+            ? `<div class="postnews-badge">✅ POST-NEWS ${actionOf(bias)} • USD ${bias === 'long' ? 'melemah' : 'menguat'}${momText} • valid s/d ${postValidUntil}</div>`
+            : `<div class="postnews-badge">✅ POST-NEWS — arah belum terkonfirmasi. Entry BUY/SELL setelah harga breakout level di bawah • valid s/d ${postValidUntil}</div>`;
+    } else if (bias) {
+        html += `<div class="validity">⚠️ Entry pasar riil ${actionOf(bias)} — valid hingga ${validUntil}</div>`;
     }
 
-    const statusText = directed ? `(USD ${isUSDWeak ? 'Melemah' : 'Menguat'})` : (isExpired ? '(Spot Prices - News Ended)' : '(Straddle Level)');
+    if (bias) {
+        const riskPct = 0.5, rewardPct = 1.0;
+        const entry = LIVE_PRICE;
+        const sl = bias === 'long' ? entry * (1 - riskPct / 100) : entry * (1 + riskPct / 100);
+        const tp = bias === 'long' ? entry * (1 + rewardPct / 100) : entry * (1 - rewardPct / 100);
+
+        html += `<div style="display:flex; gap:14px; flex-wrap:wrap;">`;
+        html += `<span style="color:#72d4e4; font-weight:bold; width:100%;">XAU/USD (Gold) — ${actionOf(bias)}</span>`;
+        html += `<span><b>Entry</b> ${f(entry)}</span><span><b>SL</b> ${f(sl)}</span><span><b>TP</b> ${f(tp)}</span><span><b>R:R</b> 1:2.0</span>`;
+        html += `</div>`;
+    } else if (isPre) {
+        const buffer = LIVE_PRICE * 0.0015;
+        const buyStop = LIVE_PRICE + buffer;
+        const sellStop = LIVE_PRICE - buffer;
+        const slDist = buffer * 2.0;
+        const tpDist = buffer * 4.0;
+
+        const buySL = buyStop - slDist;
+        const buyTP = buyStop + tpDist;
+        const sellSL = sellStop + slDist;
+        const sellTP = sellStop - tpDist;
+
+        if (impact >= 3) {
+            html += `<div class="warning-badge">⚠️ HIGH IMPACT NEWS: Spread akan melebar. Gunakan Pending Order!</div>`;
+        }
+
+        html += `<div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)} — Siapkan order 5 menit sebelum rilis (${validUntil})</div>`;
+
+        html += `<div class="exec-box">
+            <h5>STRATEGI STRADDLE (OCO)</h5>
+            <div class="exec-grid">
+                <div class="exec-card buy">
+                    <b>BUY STOP (LONG)</b>
+                    <div class="val">Entry: ${f(buyStop)}</div>
+                    <div class="val" style="color:var(--red)">SL: ${f(buySL)}</div>
+                    <div class="val" style="color:var(--green)">TP: ${f(buyTP)}</div>
+                </div>
+                <div class="exec-card sell">
+                    <b>SELL STOP (SHORT)</b>
+                    <div class="val">Entry: ${f(sellStop)}</div>
+                    <div class="val" style="color:var(--red)">SL: ${f(sellSL)}</div>
+                    <div class="val" style="color:var(--green)">TP: ${f(sellTP)}</div>
+                </div>
+            </div>
+            <div class="oco-note">*OCO: Jika salah satu order tersentuh, batalkan order lainnya.</div>
+        </div>`;
+    } else {
+        const buffer = LIVE_PRICE * 0.0025;
+        const slDist = buffer * 1.5;
+        const tpDist = buffer * 3.0;
+        const buyEntry = LIVE_PRICE + buffer;
+        const sellEntry = LIVE_PRICE - buffer;
+
+        if (impact >= 3) {
+            html += `<div class="warning-badge">⚠️ HIGH IMPACT NEWS: Spread melebar — tunggu candle konfirmasi.</div>`;
+        }
+
+        html += `<div class="exec-box">
+            <h5>POST-NEWS BREAKOUT (OCO)</h5>
+            <div class="exec-grid">
+                <div class="exec-card buy">
+                    <b>BUY</b>
+                    <div class="val">Entry: ${f(buyEntry)}</div>
+                    <div class="val" style="color:var(--red)">SL: ${f(buyEntry - slDist)}</div>
+                    <div class="val" style="color:var(--green)">TP: ${f(buyEntry + tpDist)}</div>
+                </div>
+                <div class="exec-card sell">
+                    <b>SELL</b>
+                    <div class="val">Entry: ${f(sellEntry)}</div>
+                    <div class="val" style="color:var(--red)">SL: ${f(sellEntry + slDist)}</div>
+                    <div class="val" style="color:var(--green)">TP: ${f(sellEntry - tpDist)}</div>
+                </div>
+            </div>
+            <div class="oco-note">*OCO: Jika salah satu arah tersentuh, batalkan arah lainnya.</div>
+        </div>`;
+    }
 
     if (Object.keys(FOREX_RATES).length > 0) {
         const forexPairs = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'];
-        html += `<div class="forex-container"><span style="color:#72d4e4; font-weight:bold; width:100%;">Forex Majors ${statusText}</span>`;
+        const fxStatus = bias ? `(${actionOf(bias)} • USD ${bias === 'long' ? 'Melemah' : 'Menguat'})` : isPre ? '(Straddle Level)' : '(Breakout Level)';
+        html += `<div class="forex-container"><span style="color:#72d4e4; font-weight:bold; width:100%;">Forex Majors ${fxStatus}</span>`;
         forexPairs.forEach(pair => {
             const rate = pairRate(pair);
             if (!rate) return;
@@ -273,65 +365,68 @@ function tpSl(a, e) {
             const slDist = isJpyStyle ? 0.30 : 0.0030;
             const tpDist = isJpyStyle ? 0.60 : 0.0060;
             const dec = isJpyStyle ? 3 : 5;
-            
-            if (!directed) {
-                if (isExpired) {
-                    html += `<div class="forex-card"><div>${pair} <b>WATCH</b></div><div class="val">Spot: ${rate.toFixed(dec)}</div></div>`;
-                    return;
-                }
-                const buffer = isJpyStyle ? 0.15 : 0.0015;
-                const pipMultiplier = isJpyStyle ? 100 : 10000;
-                html += `<div class="forex-card" style="border-left-color: var(--amber);">
-                    <div>${pair} <b style="color:var(--amber)">STRADDLE</b></div>
-                    <div class="val" style="color:var(--green); font-size:11px;">B.STOP: ${(rate + buffer).toFixed(dec)}</div>
-                    <div class="val" style="color:var(--red); font-size:11px;">S.STOP: ${(rate - buffer).toFixed(dec)}</div>
-                    <div class="val" style="color:var(--muted); font-size:9px;">SL/TP: ${slDist*pipMultiplier}/${tpDist*pipMultiplier} pips</div>
-                </div>`;
+            const pipMultiplier = isJpyStyle ? 100 : 10000;
+
+            if (bias) {
+                const isLongPair = pair.startsWith('USD/') ? bias === 'short' : bias === 'long';
+                const fxSl = isLongPair ? rate - slDist : rate + slDist;
+                const fxTp = isLongPair ? rate + tpDist : rate - tpDist;
+                const cls = isLongPair ? 'long' : 'short';
+                html += `<div class="forex-card ${cls}"><div>${pair} <b>${isLongPair ? 'BUY' : 'SELL'}</b></div><div class="val">Entry: ${rate.toFixed(dec)}</div><div class="val" style="color:var(--red)">SL: ${fxSl.toFixed(dec)}</div><div class="val" style="color:var(--green)">TP: ${fxTp.toFixed(dec)}</div></div>`;
                 return;
             }
-            
-            const dir = pair.startsWith('USD/') ? (isUSDWeak ? 'SHORT' : 'LONG') : (isUSDWeak ? 'LONG' : 'SHORT');
-            const fxSl = dir === 'LONG' ? rate - slDist : rate + slDist;
-            const fxTp = dir === 'LONG' ? rate + tpDist : rate - tpDist;
-            const cls = dir === 'LONG' ? 'long' : 'short';
-            html += `<div class="forex-card ${cls}"><div>${pair} <b>${dir}</b></div><div class="val">Entry: ${rate.toFixed(dec)}</div><div class="val" style="color:var(--red)">SL: ${fxSl.toFixed(dec)}</div><div class="val" style="color:var(--green)">TP: ${fxTp.toFixed(dec)}</div></div>`;
+
+            const buffer = isJpyStyle ? 0.15 : 0.0015;
+            const buyEntry = rate + buffer;
+            const sellEntry = rate - buffer;
+            const buySl = buyEntry - slDist;
+            const buyTp = buyEntry + tpDist;
+            const sellSl = sellEntry + slDist;
+            const sellTp = sellEntry - tpDist;
+            const label = isPre ? 'STRADDLE' : 'BREAKOUT';
+
+            html += `<div class="forex-card" style="border-left-color: var(--amber);">
+                <div>${pair} <b style="color:var(--amber)">${label}</b></div>
+                <div class="val" style="color:var(--green); font-size:11px;">BUY: ${buyEntry.toFixed(dec)} → TP ${buyTp.toFixed(dec)}</div>
+                <div class="val" style="color:var(--red); font-size:11px;">SELL: ${sellEntry.toFixed(dec)} → TP ${sellTp.toFixed(dec)}</div>
+                <div class="val" style="color:var(--muted); font-size:9px;">SL: ${buySl.toFixed(dec)} / ${sellSl.toFixed(dec)} • SL/TP ${slDist * pipMultiplier}/${tpDist * pipMultiplier} pips</div>
+            </div>`;
         });
         html += `</div>`;
     }
 
     if (Object.keys(CRYPTO_RATES).length > 0) {
-        html += `<div class="forex-container" style="border-top: 1px dashed rgba(255,255,255,.1); margin-top: 10px; padding-top: 10px;"><span style="color:#f7931a; font-weight:bold; width:100%;">Crypto Markets ${statusText}</span>`;
+        const cryptoStatus = bias ? `(${actionOf(bias)} • USD ${bias === 'long' ? 'Melemah' : 'Menguat'})` : isPre ? '(Straddle Level)' : '(Breakout Level)';
+        html += `<div class="forex-container" style="border-top: 1px dashed rgba(255,255,255,.1); margin-top: 10px; padding-top: 10px;"><span style="color:#f7931a; font-weight:bold; width:100%;">Crypto Markets ${cryptoStatus}</span>`;
         ['BTC/USD', 'ETH/USD'].forEach(pair => {
             const rate = CRYPTO_RATES[pair];
             if (!rate) return;
             const fmt = n => n.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             const isBTC = pair === 'BTC/USD';
             const bColor = isBTC ? '#f7931a' : '#627eea';
-            
-            if (!directed) {
-                if (isExpired) {
-                    html += `<div class="forex-card" style="border-left-color: ${bColor};"><div>${pair} <b>WATCH</b></div><div class="val">Spot: $${fmt(rate)}</div></div>`;
-                    return;
-                }
-                const bufferPct = isBTC ? 0.3 : 0.5;
-                const slPct = bufferPct * 2;
-                const tpPct = bufferPct * 4;
-                html += `<div class="forex-card" style="border-left-color: var(--amber);">
-                    <div>${pair} <b style="color:var(--amber)">STRADDLE</b></div>
-                    <div class="val" style="color:var(--green); font-size:11px;">B.STOP: $${fmt(rate * (1 + bufferPct/100))}</div>
-                    <div class="val" style="color:var(--red); font-size:11px;">S.STOP: $${fmt(rate * (1 - bufferPct/100))}</div>
-                    <div class="val" style="color:var(--muted); font-size:9px;">SL/TP: ${slPct}% / ${tpPct}%</div>
-                </div>`;
+
+            if (bias) {
+                const slPct = isBTC ? 1.0 : 1.5;
+                const tpPct = isBTC ? 2.0 : 3.0;
+                const fxSl = bias === 'long' ? rate * (1 - slPct / 100) : rate * (1 + slPct / 100);
+                const fxTp = bias === 'long' ? rate * (1 + tpPct / 100) : rate * (1 - tpPct / 100);
+                html += `<div class="forex-card ${bias}" style="border-left-color: ${bColor};"><div>${pair} <b>${actionOf(bias)}</b></div><div class="val">Entry: $${fmt(rate)}</div><div class="val" style="color:var(--red)">SL: $${fmt(fxSl)}</div><div class="val" style="color:var(--green)">TP: $${fmt(fxTp)}</div></div>`;
                 return;
             }
-            
-            const dir = isUSDWeak ? 'LONG' : 'SHORT';
-            const slPct = isBTC ? 1.0 : 1.5;
-            const tpPct = isBTC ? 2.0 : 3.0;
-            const fxSl = dir === 'LONG' ? rate * (1 - slPct/100) : rate * (1 + slPct/100);
-            const fxTp = dir === 'LONG' ? rate * (1 + tpPct/100) : rate * (1 - tpPct/100);
-            const cls = dir === 'LONG' ? 'long' : 'short';
-            html += `<div class="forex-card ${cls}" style="border-left-color: ${bColor};"><div>${pair} <b>${dir}</b></div><div class="val">Entry: $${fmt(rate)}</div><div class="val" style="color:var(--red)">SL: $${fmt(fxSl)}</div><div class="val" style="color:var(--green)">TP: ${fmt(fxTp)}</div></div>`;
+
+            const bufferPct = isBTC ? 0.3 : 0.5;
+            const slPct = bufferPct * 2;
+            const tpPct = bufferPct * 4;
+            const buyEntry = rate * (1 + bufferPct / 100);
+            const sellEntry = rate * (1 - bufferPct / 100);
+            const label = isPre ? 'STRADDLE' : 'BREAKOUT';
+
+            html += `<div class="forex-card" style="border-left-color: var(--amber);">
+                <div>${pair} <b style="color:var(--amber)">${label}</b></div>
+                <div class="val" style="color:var(--green); font-size:11px;">BUY: $${fmt(buyEntry)} → TP $${fmt(buyEntry * (1 + tpPct / 100))}</div>
+                <div class="val" style="color:var(--red); font-size:11px;">SELL: $${fmt(sellEntry)} → TP $${fmt(sellEntry * (1 - tpPct / 100))}</div>
+                <div class="val" style="color:var(--muted); font-size:9px;">SL/TP: ${slPct}% / ${tpPct}%</div>
+            </div>`;
         });
         html += `</div>`;
     }
@@ -342,7 +437,17 @@ function tpSl(a, e) {
 
 function card(e) {
     const a = analyze(e);
-    const color = a.dir === 'long' ? 'var(--green)' : a.dir === 'short' ? 'var(--red)' : 'var(--amber)';
+    const phase = newsPhase(e);
+    const momentum = phase === 'post' && a.dir === 'wait' ? postNewsMomentum(e) : null;
+    const signalDir = a.dir !== 'wait' ? a.dir : (momentum && momentum.dir ? momentum.dir : 'wait');
+    const signalLabel = signalDir === 'long' ? 'BUY' : signalDir === 'short' ? 'SELL' : 'WAIT';
+    const signalNote = a.dir === 'wait' && momentum
+        ? `post-news ${momentum.changePct >= 0 ? '+' : ''}${momentum.changePct.toFixed(2)}%`
+        : `${a.score}% confidence`;
+    const reason = phase === 'post' && a.dir === 'wait'
+        ? `${a.reason} Sinyal BUY/SELL pasca-rilis memakai momentum harga terhadap harga pra-rilis; bila arah belum jelas, level breakout dua arah ditampilkan.`
+        : a.reason;
+    const color = signalDir === 'long' ? 'var(--green)' : signalDir === 'short' ? 'var(--red)' : 'var(--amber)';
     return `<article class="event glass">
         <div class="event-title">
             <div class="flag">${e.Country==='USD'?'🇺🇸':e.Country==='EUR'?'🇪🇺':e.Country==='GBP'?'🇬🇧':e.Country==='JPY'?'🇯🇵':e.Country==='AUD'?'🇦🇺':e.Country==='NZD'?'🇳🇿':e.Country==='CAD'?'🇨🇦':'🌐'}</div>
@@ -353,10 +458,10 @@ function card(e) {
         <div class="metric"><span>Actual</span><b>${esc(e.Actual)}</b></div>
         <div>
             <span class="impact">${e.Importance>=3?'HIGH':e.Importance>=2?'MEDIUM':'LOW'}</span>
-            <div class="signal ${a.dir}"><b>${a.dir==='long'?'LONG':a.dir==='short'?'SHORT':'WAIT'}</b><small>${a.score}% confidence</small></div>
+            <div class="signal ${signalDir}"><b>${signalLabel}</b><small>${signalNote}</small></div>
         </div>
         <div class="expand">
-            <div class="reason"><b>shidiqpiy scenario</b><p>${esc(a.reason)}</p></div>
+            <div class="reason"><b>shidiqpiy scenario</b><p>${esc(reason)}</p></div>
             <div class="meter-row"><div class="meter"><i style="--score:${a.score}%;--meter:${color}"></i></div><span class="score" style="--meter:${color}">${a.score}</span></div>
         </div>
         ${tpSl(a, e)}
@@ -400,13 +505,16 @@ function render() {
     const now = new Date();
     if (!['upcoming', 'high', 'history'].includes(filter)) filter = 'all';
     
-    // FITUR BARU: Sembunyikan berita jika sudah lewat 2 jam DAN Actual masih kosong
+    events.forEach(rememberPreNewsPrice);
+
+    // Berita medium/high impact tetap tampil 6 jam setelah rilis agar sinyal BUY/SELL pasca-news bisa dieksekusi.
     let list = events.filter(e => {
         const eventTime = new Date(e.Date).getTime();
-        const isExpiredTwoHours = now.getTime() > (eventTime + 2 * 60 * 60 * 1000);
+        const keepMs = (e.Importance >= 2 ? 6 : 2) * 60 * 60 * 1000;
+        const isStale = now.getTime() > eventTime + keepMs;
         const isActualMissing = !String(e.Actual ?? '').trim();
         
-        if (isExpiredTwoHours && isActualMissing) return false; // Jangan tampilkan jika basi & tidak ada hasil
+        if (isStale && isActualMissing) return false;
 
         return filter === 'all' || (filter === 'upcoming' && new Date(e.Date) >= now) || (filter === 'high' && e.Importance >= 3);
     });
