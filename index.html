@@ -45,17 +45,26 @@
     .forex-card .val { color: #fff; }
     .validity { width: 100%; color: #ffc96b; font-weight: bold; margin-bottom: 5px; font-size:12px; }
 
-    .crypto-board { margin-top: 18px; border-radius: 26px; padding: 18px 22px; display: grid; grid-template-columns: minmax(210px, .85fr) 2fr; gap: 18px; align-items: center; }
-    .crypto-board h3 { font: 800 19px Manrope; margin: 4px 0 3px; letter-spacing: -.4px; }
-    .crypto-board p { margin: 0; color: var(--muted); font-size: 12px; max-width: 340px; }
+    .crypto-board,.market-board { margin-top: 18px; border-radius: 26px; padding: 18px 22px; display: grid; grid-template-columns: minmax(210px, .85fr) 2fr; gap: 18px; align-items: center; }
+    .crypto-board h3,.market-board h3 { font: 800 19px Manrope; margin: 4px 0 3px; letter-spacing: -.4px; }
+    .crypto-board p,.market-board p { margin: 0; color: var(--muted); font-size: 12px; max-width: 340px; }
     .crypto-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .mb-body { display: grid; gap: 6px; }
+    .mb-price { font: 800 26px Manrope; letter-spacing: -.6px; }
+    .mb-meta { color: var(--muted); font-size: 11px; }
+    .mb-levels { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .mb-level { background: rgba(4,15,23,.42); border: 1px solid var(--line); border-left: 3px solid var(--amber); border-radius: 12px; padding: 10px 12px; display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; font-size: 11px; }
+    .mb-level b { font: 800 12px Manrope; }
+    .mb-level.buy { border-left-color: var(--green); } .mb-level.buy b { color: var(--green); }
+    .mb-level.sell { border-left-color: var(--red); } .mb-level.sell b { color: var(--red); }
+    .mb-level span { color: #dff5fb; white-space: nowrap; }
     .crypto-card { background: rgba(4,15,23,.42); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 14px; padding: 12px 14px; }
     .crypto-card .pair { display: flex; justify-content: space-between; align-items: center; font: 800 14px Manrope; }
     .crypto-card .pair small { color: var(--muted); font: 500 11px "DM Sans",sans-serif; }
     .crypto-card .price { font: 800 22px Manrope; margin: 4px 0 2px; }
     .crypto-card .meta { color: var(--muted); font-size: 11px; }
     .crypto-card .meta .sep { opacity: .5; margin: 0 3px; }
-    @media(max-width:760px){ .crypto-board { grid-template-columns: 1fr; } .crypto-grid { grid-template-columns: 1fr; } }
+    @media(max-width:760px){ .crypto-board,.market-board { grid-template-columns: 1fr; } .crypto-grid,.mb-levels { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body><main class="shell">
@@ -75,6 +84,14 @@
   </header>
   
   <section class="hero"><article class="intro glass"><div class="eyebrow">Waktu Indonesia Tengah</div><h2>Global-moving news,<br><span>in the right order.</span></h2><p>A chronological monthly calendar focused on Global events that can move XAUUSD. Every scenario is converted to Waktu Indonesia Tengah and explained before a directional bias is shown.</p><div class="stats"><div class="stat"><b id="eventCount">—</b><span>events this month</span></div><div class="stat"><b id="highCount">—</b><span>high-impact releases</span></div><div class="stat"><b>WITA</b><span>Asia/Makassar • UTC+8</span></div></div></article><aside class="next"><div><div class="eyebrow">Next gold catalyst</div><h3 id="nextName">Finding next event…</h3><small id="nextTime">Waktu Indonesia Tengah</small></div><div><div class="countdown" id="countdown">--:--:--</div><small>until scheduled release</small></div></aside></section>
+  <section class="market-board glass" id="goldBoard">
+    <div>
+      <div class="eyebrow">Gold watch</div>
+      <h3>XAU/USD</h3>
+      <p>Live gold levels from the active USD catalyst: straddle OCO before the release, momentum BUY/SELL after it. Non-USD event cards keep gold hidden.</p>
+    </div>
+    <div class="mb-body" id="goldBoardBody"></div>
+  </section>
   <section class="crypto-board glass" id="cryptoBoard">
     <div>
       <div class="eyebrow">Crypto watch</div>
@@ -259,6 +276,91 @@ async function loadForex() {
         const j = await r.json();
         if (j.rates) { FOREX_RATES = j.rates; render(); }
     } catch (e) { console.log('Forex API failed', e); }
+}
+
+function goldBoardState(now = Date.now()) {
+    const usd = events
+        .filter(e => countryCode(e.Country) === 'USD' && (+e.Importance || 1) >= 2)
+        .map(e => ({ e, t: new Date(e.Date).getTime() }))
+        .filter(x => Number.isFinite(x.t))
+        .sort((a, b) => a.t - b.t);
+    const label = x => esc(`${x.e.Event} · ${fmtDate(new Date(x.e.Date))} ${fmtTime(new Date(x.e.Date))}`);
+    const upcoming = usd.find(x => x.t > now);
+    const idle = { status: 'idle', next: upcoming ? label(upcoming) : '' };
+
+    const price = Number(LIVE_PRICE);
+    if (!Number.isFinite(price) || price <= 0) return { status: 'loading' };
+
+    const released = usd.filter(x => x.t <= now && now <= postNewsExpiry(x.e).getTime());
+    const pick = released.length ? released[released.length - 1] : upcoming;
+    if (!pick) return idle;
+
+    if (pick.t > now) {
+        const buffer = price * 0.0015;
+        return {
+            status: 'pre',
+            event: label(pick),
+            buy: { entry: price + buffer, sl: price + buffer - buffer * 2, tp: price + buffer + buffer * 4 },
+            sell: { entry: price - buffer, sl: price - buffer + buffer * 2, tp: price - buffer - buffer * 4 }
+        };
+    }
+    if (now < pick.t + NEWS_SETTLE_MS) return { status: 'live', event: label(pick) };
+
+    const a = analyze(pick.e);
+    const directed = a.dir === 'long' || a.dir === 'short';
+    const mom = directed ? null : momentumFor(pick.e, 'gold');
+    const dir = directed ? a.dir : (mom && mom.dir ? mom.dir : null);
+    const changePct = mom ? mom.changePct : null;
+    const validUntil = fmtDate(postNewsExpiry(pick.e)) + ' ' + fmtTime(postNewsExpiry(pick.e));
+
+    if (dir) {
+        const riskPct = 0.5, rewardPct = 1.0;
+        return {
+            status: 'post', event: label(pick), dir, changePct, validUntil,
+            levels: {
+                entry: price,
+                sl: dir === 'long' ? price * (1 - riskPct / 100) : price * (1 + riskPct / 100),
+                tp: dir === 'long' ? price * (1 + rewardPct / 100) : price * (1 - rewardPct / 100)
+            }
+        };
+    }
+
+    const buffer = price * 0.0025;
+    return {
+        status: 'post', event: label(pick), dir: null, changePct, validUntil,
+        buy: { entry: price + buffer, sl: price + buffer - buffer * 1.5, tp: price + buffer + buffer * 3 },
+        sell: { entry: price - buffer, sl: price - buffer + buffer * 1.5, tp: price - buffer - buffer * 3 }
+    };
+}
+
+function goldBoardHtml(price, state) {
+    const f = n => Number(n).toFixed(2);
+    const p = Number(price);
+    const money = n => '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const st = state || { status: 'idle' };
+    let html = `<div class="mb-price">${Number.isFinite(p) && p > 0 ? money(p) : '—'}</div>`;
+    if (!Number.isFinite(p) || p <= 0) return html + `<div class="mb-meta">Menunggu harga gold live…</div>`;
+    if (st.event) html += `<div class="mb-meta">${st.event}</div>`;
+    const lv = (cls, title, o) => `<div class="mb-level ${cls}"><b>${title}</b><span>Entry ${f(o.entry)}</span><span>SL ${f(o.sl)}</span><span>TP ${f(o.tp)}</span></div>`;
+
+    if (st.status === 'live') return html + `<div class="mb-meta">⏳ Rilis berlangsung — sinyal tampil setelah impact terkonfirmasi.</div>`;
+    if (st.status === 'pre' && st.buy && st.sell) {
+        return html + `<div class="mb-levels">${lv('buy', 'BUY STOP', st.buy)}${lv('sell', 'SELL STOP', st.sell)}</div><div class="mb-meta">Straddle OCO — jika satu arah tersentuh, batalkan arah lainnya.</div>`;
+    }
+    if (st.status === 'post' && st.dir && st.levels) {
+        const long = st.dir === 'long';
+        const mom = st.changePct == null ? '' : ` • momentum ${st.changePct >= 0 ? '+' : ''}${Number(st.changePct).toFixed(2)}%`;
+        return html + `<div class="mb-levels">${lv(long ? 'buy' : 'sell', (long ? 'BUY' : 'SELL') + mom, st.levels)}</div><div class="mb-meta">Post-news momentum • valid s/d ${st.validUntil || '6 jam setelah rilis'}</div>`;
+    }
+    if (st.status === 'post' && st.buy && st.sell) {
+        return html + `<div class="mb-levels">${lv('buy', 'BUY BREAKOUT', st.buy)}${lv('sell', 'SELL BREAKOUT', st.sell)}</div><div class="mb-meta">Post-news breakout OCO • valid s/d ${st.validUntil || '6 jam setelah rilis'}</div>`;
+    }
+    return html + `<div class="mb-meta">Tidak ada katalis USD aktif. ${st.next ? 'Berikutnya: ' + st.next : 'Tunggu kalender berikutnya.'}</div>`;
+}
+
+function renderGoldBoard() {
+    const body = $('#goldBoardBody');
+    if (body) body.innerHTML = goldBoardHtml(LIVE_PRICE, goldBoardState());
 }
 
 function cryptoBoardHtml(rates, change) {
@@ -699,6 +801,7 @@ function render() {
         $('#nextTime').textContent = fmtDate(new Date(next.Date)) + ' • ' + fmtTime(new Date(next.Date));
     }
     updateCountdown(next);
+    renderGoldBoard();
 }
 
 function updateCountdown(next) {
@@ -724,6 +827,7 @@ document.querySelector('.filters').addEventListener('click', ev => {
 });
 
 $('#refresh').onclick = () => { load(); loadForex(); loadCrypto(); loadPreNews(); };
+renderGoldBoard();
 renderCryptoBoard();
 load(); loadForex(); loadCrypto(); loadPreNews();
 setInterval(() => { loadForex(); loadCrypto(); }, 60000);

@@ -208,3 +208,133 @@ assert.doesNotMatch(boardEmpty, /NaN|\$undefined/);
 
 console.log('Passed global crypto board tests');
 
+// Global gold board: always visible outside event cards.
+const goldStart = source.indexOf('id="goldBoard"');
+assert.ok(goldStart > -1, 'gold board section missing');
+assert.ok(goldStart < calendarStart, 'gold board must render before the calendar');
+
+const goldBoardFn = extractFunction('goldBoardHtml');
+const goldBoardHtml = new Function(`${goldBoardFn}\nreturn goldBoardHtml;`)();
+
+const goldPre = goldBoardHtml(4042.4, {
+  status: 'pre',
+  event: 'FOMC · Kam 29 Okt 02:00 WITA',
+  buy: { entry: 4048.46, sl: 4036.34, tp: 4072.72 },
+  sell: { entry: 4036.34, sl: 4048.46, tp: 4012.06 }
+});
+assert.match(goldPre, /\$4,042\.40/);
+assert.match(goldPre, /FOMC/);
+assert.match(goldPre, /BUY STOP/);
+assert.match(goldPre, /SELL STOP/);
+assert.match(goldPre, /Entry 4048\.46/);
+assert.match(goldPre, /SL 4036\.34/);
+assert.match(goldPre, /TP 4072\.72/);
+assert.match(goldPre, /Straddle OCO/);
+
+const goldPostLong = goldBoardHtml(4042.4, {
+  status: 'post', event: 'FOMC', dir: 'long', changePct: 0.42, validUntil: 'Kam 29 Okt 10:00 WITA',
+  levels: { entry: 4042.4, sl: 4022.19, tp: 4082.82 }
+});
+assert.match(goldPostLong, /BUY • momentum \+0\.42%/);
+assert.match(goldPostLong, /Entry 4042\.40/);
+assert.match(goldPostLong, /SL 4022\.19/);
+assert.match(goldPostLong, /TP 4082\.82/);
+assert.match(goldPostLong, /valid s\/d Kam 29 Okt 10:00 WITA/);
+assert.doesNotMatch(goldPostLong, /SELL/);
+
+const goldPostShort = goldBoardHtml(4000, {
+  status: 'post', event: 'CPI', dir: 'short',
+  levels: { entry: 4000, sl: 4020, tp: 3960 }
+});
+assert.match(goldPostShort, /SELL/);
+assert.doesNotMatch(goldPostShort, /• momentum/);
+assert.doesNotMatch(goldPostShort, /NaN/);
+
+const goldBreakout = goldBoardHtml(4000, {
+  status: 'post', dir: null, validUntil: 'x',
+  buy: { entry: 4010, sl: 3995, tp: 4040 },
+  sell: { entry: 3990, sl: 4005, tp: 3960 }
+});
+assert.match(goldBreakout, /BUY BREAKOUT/);
+assert.match(goldBreakout, /SELL BREAKOUT/);
+assert.match(goldBreakout, /Post-news breakout OCO/);
+
+assert.match(goldBoardHtml(4000, { status: 'live', event: 'FOMC' }), /Rilis berlangsung/);
+
+const goldIdle = goldBoardHtml(4000, { status: 'idle', next: 'FOMC · Kam 29 Okt 02:00 WITA' });
+assert.match(goldIdle, /Tidak ada katalis USD aktif/);
+assert.match(goldIdle, /Berikutnya: FOMC/);
+
+const goldNoPrice = goldBoardHtml(null, { status: 'loading' });
+assert.match(goldNoPrice, /—/);
+assert.match(goldNoPrice, /Menunggu harga gold live/);
+assert.doesNotMatch(goldNoPrice, /NaN|\$undefined/);
+
+// Gold board state picks the right phase and levels.
+const stateFn = extractFunction('goldBoardState');
+function buildGoldState(evts, price, now, analyzeBody = "() => ({ dir: 'wait' })", momentumBody = '() => null') {
+  const body = `
+    const WITA = 'Asia/Makassar';
+    const NEWS_SETTLE_MS = 60 * 1000;
+    const POST_NEWS_HOLD_MS = 6 * 60 * 60 * 1000;
+    const countryCode = c => String(c || 'USD').toUpperCase();
+    const esc = s => String(s);
+    const fmtDate = () => 'Kam 29 Okt';
+    const fmtTime = () => '02:00 WITA';
+    const postNewsExpiry = e => new Date(new Date(e.Date).getTime() + POST_NEWS_HOLD_MS);
+    const analyze = ${analyzeBody};
+    const momentumFor = ${momentumBody};
+    ${stateFn}
+    return goldBoardState;
+  `;
+  return new Function('events', 'LIVE_PRICE', body)(evts, price)(now);
+}
+
+const now = Date.now();
+const usdFuture = { Date: new Date(now + 60 * 60 * 1000).toISOString(), Event: 'FOMC', Country: 'USD', Importance: 3 };
+const usdPast = { Date: new Date(now - 60 * 60 * 1000).toISOString(), Event: 'CPI', Country: 'USD', Importance: 3 };
+const usdStale = { Date: new Date(now - 7 * 60 * 60 * 1000).toISOString(), Event: 'NFP', Country: 'USD', Importance: 3 };
+const audFuture = { Date: new Date(now + 60 * 60 * 1000).toISOString(), Event: 'CPI m/m', Country: 'AUD', Importance: 3 };
+
+const preState = buildGoldState([usdFuture], 4000, now);
+assert.equal(preState.status, 'pre');
+assert.ok(Math.abs(preState.buy.entry - 4006) < 1e-9);
+assert.ok(Math.abs(preState.buy.sl - 3994) < 1e-9);
+assert.ok(Math.abs(preState.buy.tp - 4030) < 1e-9);
+assert.ok(Math.abs(preState.sell.entry - 3994) < 1e-9);
+assert.ok(Math.abs(preState.sell.tp - 3970) < 1e-9);
+
+const postBreakout = buildGoldState([usdPast], 4000, now);
+assert.equal(postBreakout.status, 'post');
+assert.equal(postBreakout.dir, null);
+assert.ok(Math.abs(postBreakout.buy.entry - 4010) < 1e-9);
+assert.ok(Math.abs(postBreakout.buy.sl - 3995) < 1e-9);
+assert.ok(Math.abs(postBreakout.buy.tp - 4040) < 1e-9);
+
+const postDirected = buildGoldState([usdPast], 4000, now, "() => ({ dir: 'short' })");
+assert.equal(postDirected.status, 'post');
+assert.equal(postDirected.dir, 'short');
+assert.ok(Math.abs(postDirected.levels.sl - 4020) < 1e-9);
+assert.ok(Math.abs(postDirected.levels.tp - 3960) < 1e-9);
+
+const postMomentum = buildGoldState([usdPast], 4000, now, "() => ({ dir: 'wait' })", "() => ({ dir: 'long', changePct: 0.35 })");
+assert.equal(postMomentum.dir, 'long');
+assert.equal(postMomentum.changePct, 0.35);
+
+const staleState = buildGoldState([usdStale], 4000, now);
+assert.equal(staleState.status, 'idle');
+assert.equal(staleState.next, '');
+
+const audOnlyState = buildGoldState([audFuture], 4000, now);
+assert.equal(audOnlyState.status, 'idle');
+assert.equal(audOnlyState.next, '');
+
+const liveState = buildGoldState([{ ...usdPast, Date: new Date(now - 30 * 1000).toISOString() }], 4000, now);
+assert.equal(liveState.status, 'live');
+
+const noPriceState = buildGoldState([usdFuture], null, now);
+assert.equal(noPriceState.status, 'loading');
+
+console.log('Passed global gold board tests');
+
+
