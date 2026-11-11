@@ -541,4 +541,25 @@ test('pra-news: tiket pra-rilis menghasilkan arah valid, pullback FVG, dan Strad
   });
   assert.equal(conflictTicket.action, 'NONE', 'konflik sentimen harian vs intraday harus menahan diri');
   assert.equal(conflictTicket.tradable, false);
+
+  // XAUUSD tanpa changePct sendiri (0/kosong) tetapi basket USD menguat -> SELL XAUUSD (1 harga)
+  const usdStrongPrices = {
+    ...prices,
+    XAUUSD: { ...prices.XAUUSD, changePct: 0 },
+    EURUSD: { ...prices.EURUSD, changePct: -0.15 },
+    GBPUSD: { ...prices.GBPUSD, changePct: -0.14 },
+    USDJPY: { ...prices.USDJPY, changePct: 0.12 },
+    USDCHF: { ...prices.USDCHF, changePct: 0.25 }
+  };
+  const xauBasketTicket = buildPreNewsTicket({
+    event: neutralEv,
+    pair: 'XAUUSD',
+    quote: usdStrongPrices.XAUUSD,
+    prices: usdStrongPrices,
+    now
+  });
+  assert.equal(xauBasketTicket.tradable, true, 'XAUUSD harus muncul lewat sentimen basket USD');
+  assert.equal(xauBasketTicket.action, 'SELL', 'USD menguat -> SELL XAUUSD');
+  assert.equal(xauBasketTicket.via, 'market-sentiment');
+  assert.equal(xauBasketTicket.straddle, null);
 });

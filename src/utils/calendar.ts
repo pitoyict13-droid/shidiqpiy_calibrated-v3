@@ -34,7 +34,7 @@ const SUPPORTED_CURRENCY = new Set<string>(['USD', 'EUR', 'GBP', 'JPY', 'AUD', '
 
 // Pasangan per mata uang event — selalu difilter terhadap instrumen yang tersedia.
 const PAIRS_BY_CURRENCY: Record<string, string[]> = {
-  USD: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'NAS100', 'US500'],
+  USD: ['XAUUSD', 'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD', 'NAS100', 'US500'],
   EUR: ['EURUSD', 'EURJPY'],
   GBP: ['GBPUSD', 'GBPJPY'],
   JPY: ['USDJPY', 'EURJPY', 'GBPJPY'],

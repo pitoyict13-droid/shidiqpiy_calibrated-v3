@@ -428,20 +428,51 @@ export function recentBarMomentumPct(bars: MinuteBar[] | undefined, windowMin = 
 }
 
 /**
+ * Hitung sentimen basket USD rata-rata dari pair mayor USD bila quote XAU/USD
+ * sendiri belum membawa changePct (mis. snapshot/gold-api hanya mengirim harga mid).
+ */
+export function usdBasketChangePct(prices?: Record<string, PriceQuote>): number | null {
+  if (!prices) return null;
+  const legs: { sym: string; sign: 1 | -1 }[] = [
+    { sym: 'EURUSD', sign: -1 },
+    { sym: 'GBPUSD', sign: -1 },
+    { sym: 'AUDUSD', sign: -1 },
+    { sym: 'NZDUSD', sign: -1 },
+    { sym: 'USDJPY', sign: 1 },
+    { sym: 'USDCHF', sign: 1 },
+    { sym: 'USDCAD', sign: 1 }
+  ];
+  let sum = 0;
+  let count = 0;
+  for (const { sym, sign } of legs) {
+    const c = prices[sym]?.changePct;
+    if (isNum(c) && c !== 0) {
+      sum += sign * c;
+      count++;
+    }
+  }
+  if (count < 3) return null;
+  return Number((sum / count).toFixed(3));
+}
+
+/**
  * Resolusi arah tunggal BUY/SELL dari sentimen pasar aktual:
  * - perubahan % harian (quote.changePct dari TradingView/snapshot), dan/atau
- * - momentum harga intraday dari bar 1-menit.
- * Bila keduanya bertentangan di atas ambang -> NONE (disiplin, tidak menebak).
+ * - momentum harga intraday dari bar 1-menit, dan/atau
+ * - untuk XAU/USD bila changePct XAU kosong/0: inversi sentimen basket USD.
+ * Bila harian & intraday bertentangan di atas ambang -> NONE (disiplin, tidak menebak).
  */
 export function resolveMarketSentiment(
-  inst: { display: string; klass: string },
+  inst: { symbol?: string; display: string; klass: string },
   quote?: PriceQuote | null,
-  bars?: MinuteBar[]
+  bars?: MinuteBar[],
+  prices?: Record<string, PriceQuote>
 ): DirectionResult {
   const minChg = SENTIMENT_MIN_CHANGE_PCT[inst.klass] ?? 0.15;
   const minBar = SENTIMENT_MIN_BAR_PCT[inst.klass] ?? 0.06;
 
-  const chg = quote && isNum(quote.changePct) ? quote.changePct : null;
+  const rawChg = quote && isNum(quote.changePct) ? quote.changePct : null;
+  const chg = rawChg !== null && rawChg !== 0 ? rawChg : null;
   const barPct = recentBarMomentumPct(bars);
 
   const chgDir: 'BUY' | 'SELL' | 'NONE' =
@@ -478,6 +509,18 @@ export function resolveMarketSentiment(
       via: 'market-sentiment',
       reason: `Sentimen sesi ${inst.display} ${chgDir === 'BUY' ? 'bullish' : 'bearish'} (${chg! > 0 ? '+' : ''}${chg!.toFixed(2)}%).`
     };
+  }
+
+  if (inst.symbol === 'XAUUSD' && chg === null) {
+    const usdAvg = usdBasketChangePct(prices);
+    if (usdAvg !== null && Math.abs(usdAvg) >= 0.08) {
+      const action = usdAvg > 0 ? 'SELL' : 'BUY';
+      return {
+        action,
+        via: 'market-sentiment',
+        reason: `Sentimen basket USD ${usdAvg > 0 ? 'menguat' : 'melemah'} (${usdAvg > 0 ? '+' : ''}${usdAvg.toFixed(2)}%) -> ${action} ${inst.display}.`
+      };
+    }
   }
 
   return { action: 'NONE', via: 'market-sentiment', reason: 'Sentimen pasar netral — belum ada arah dominan.' };
@@ -843,7 +886,7 @@ export function buildPairTicket({
       via = 'price-reaction';
       directionReason = `Rilis inline konsensus, namun reaksi harga pasca-rilis jelas (${reaction.movePct > 0 ? '+' : ''}${reaction.movePct}% / ${reaction.minutes} menit).`;
     } else {
-      const sentiment = resolveMarketSentiment(inst, quote, bars);
+      const sentiment = resolveMarketSentiment(inst, quote, bars, prices);
       if (sentiment.action !== 'NONE') {
         action = sentiment.action;
         via = sentiment.via;
@@ -1047,7 +1090,7 @@ export function buildPreNewsTicket({
     : { action: 'NONE', via: 'pre-news', reason: 'Forecast inline konsensus — cek sentimen pasar.' };
 
   if (event.impact !== 'LOW' && direction.action === 'NONE') {
-    const sentiment = resolveMarketSentiment(inst, quote, bars);
+    const sentiment = resolveMarketSentiment(inst, quote, bars, prices);
     if (sentiment.action !== 'NONE') {
       direction = sentiment;
     }
