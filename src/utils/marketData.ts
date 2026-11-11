@@ -61,6 +61,17 @@ const SCAN_TICKERS = [
 
 // --- Muat snapshot ---------------------------------------------------------------
 
+export function dataUrl(filename: string): string {
+  if (typeof window !== 'undefined' && window.location) {
+    const cleanPath = window.location.pathname
+      .replace(/\/dist(?:\/index\.html)?$/, '')
+      .replace(/\/index\.html$/, '')
+      .replace(/\/+$/, '');
+    return `${cleanPath}/data/${filename}`;
+  }
+  return `/data/${filename}`;
+}
+
 async function getJson(url: string): Promise<any | null> {
   try {
     const res = await fetch(url, { cache: 'no-store' });
@@ -91,13 +102,13 @@ export async function fetchMarketSnapshot(): Promise<MarketDataBundle> {
   }
 
   const [markets, forex, indices, crypto, broker, calendar] = await Promise.all([
-    // Path absolut: benar baik saat dibuka dari / maupun /dist/index.html
-    getJson('/data/markets.json'),
-    getJson('/data/forex.json'),
-    getJson('/data/indices.json'),
-    getJson('/data/crypto.json'),
-    getJson('/data/forex-broker.json'),
-    getJson('/data/calendar.json')
+    // Adaptif terhadap root (/), /dist/index.html, maupun subpath GitHub Pages (/repo/).
+    getJson(dataUrl('markets.json')),
+    getJson(dataUrl('forex.json')),
+    getJson(dataUrl('indices.json')),
+    getJson(dataUrl('crypto.json')),
+    getJson(dataUrl('forex-broker.json')),
+    getJson(dataUrl('calendar.json'))
   ]);
 
   return {
@@ -265,7 +276,9 @@ async function fetchScannerQuotes(): Promise<LiveResult> {
     if (!symbol || wanted.indexOf(symbol) === -1) continue;
     const close = Number(row.d && row.d[1]);
     if (!Number.isFinite(close) || close <= 0) continue;
-    if (!prices[symbol]) prices[symbol] = { symbol, mid: close };
+    const rawChange = Number(row.d && row.d[2]);
+    const changePct = Number.isFinite(rawChange) ? Number(rawChange.toFixed(3)) : null;
+    if (!prices[symbol]) prices[symbol] = { symbol, mid: close, changePct };
   }
   return { prices, source: 'live TradingView' };
 }
@@ -278,14 +291,16 @@ async function fetchGoldQuote(): Promise<LiveResult> {
 }
 
 async function fetchCryptoQuotes(): Promise<LiveResult> {
-  const url = 'https://api.binance.com/api/v3/ticker/price?symbols=' + encodeURIComponent('["BTCUSDT","ETHUSDT"]');
+  const url = 'https://api.binance.com/api/v3/ticker/24hr?symbols=' + encodeURIComponent('["BTCUSDT","ETHUSDT"]');
   const json = await getJson(url);
   if (!Array.isArray(json)) throw new Error('binance gagal');
   const prices: LiveResult['prices'] = {};
   for (const row of json) {
     const symbol = row && row.symbol === 'BTCUSDT' ? 'BTCUSD' : row && row.symbol === 'ETHUSDT' ? 'ETHUSD' : null;
-    const price = Number(row && row.price);
-    if (symbol && Number.isFinite(price) && price > 0) prices[symbol] = { symbol, mid: price };
+    const price = Number(row && (row.lastPrice ?? row.price));
+    const changePctRaw = Number(row && row.priceChangePercent);
+    const changePct = Number.isFinite(changePctRaw) ? Number(changePctRaw.toFixed(3)) : null;
+    if (symbol && Number.isFinite(price) && price > 0) prices[symbol] = { symbol, mid: price, changePct };
   }
   if (!Object.keys(prices).length) throw new Error('binance kosong');
   return { prices, source: 'live Binance' };
@@ -322,6 +337,7 @@ export async function fetchLivePrices(
       const spreadPips = inst.spreadPips;
       const bid = Number((mid - (spreadPips * inst.pipSize) / 2).toFixed(inst.digits));
       const ask = Number((mid + (spreadPips * inst.pipSize) / 2).toFixed(inst.digits));
+      const prevChangePct = merged[symbol]?.changePct ?? null;
       merged[symbol] = {
         symbol,
         bid,
@@ -329,6 +345,7 @@ export async function fetchLivePrices(
         mid,
         spreadPips,
         source: `${result.value.source}`,
+        changePct: Number.isFinite(q.changePct as number) ? (q.changePct as number) : prevChangePct,
         updatedAt: new Date(now).toISOString()
       };
     }

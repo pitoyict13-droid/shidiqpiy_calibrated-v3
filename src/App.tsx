@@ -13,7 +13,7 @@ import { EbookManualView } from './components/EbookManualView';
 import { EconomicEvent, MarketPrice, AIEventAnalysis, PriceQuote, MinuteBar } from './types/trading';
 import { INITIAL_ECONOMIC_EVENTS } from './data/economicEvents';
 import { parseCalendarEvents, buildCalibrationFor, affectedPairsFor, buildPreNewsScenarios, pickEventSource } from './utils/calendar';
-import { fetchMarketSnapshot, buildPriceMap, barsFromBundle, fetchLivePrices, describeSource } from './utils/marketData';
+import { fetchMarketSnapshot, buildPriceMap, barsFromBundle, fetchLivePrices, describeSource, dataUrl } from './utils/marketData';
 import { calculateCalibration } from './utils/calibrator';
 import { playCountdownBeep, playReleaseChime } from './utils/audioAlert';
 
@@ -70,7 +70,7 @@ export default function App() {
       // Fallback statis: kalender riil dari /data/calendar.json (situs yang sama,
       // tanpa CORS). Path absolut agar tetap benar saat dibuka dari /dist/index.html.
       try {
-        const res = await fetch('/data/calendar.json', { cache: 'no-store' });
+        const res = await fetch(dataUrl('calendar.json'), { cache: 'no-store' });
         if (res.ok) {
           const rows = await res.json();
           const parsed = parseCalendarEvents(rows, { maxAgeHours: 168 });

@@ -167,9 +167,9 @@ function headlineFor(item: AutoSignalItem): string {
       return 'Jendela rilis habis — momentum sudah lewat, tidak ada sinyal baru.';
     case 'WAITING': {
       const cd = formatCountdown(item.countdownMs ?? 0);
-      const tradablePre = (item.preNewsTickets || []).filter((t) => t.tradable);
+      const tradablePre = (item.preNewsTickets || []).filter((t) => t.tradable && t.action !== 'NONE');
       const preLabels = tradablePre.length > 0
-        ? ` · Sinyal Pra-News: ${tradablePre.slice(0, 2).map((t) => `${t.action} ${t.display}`).join(', ')}`
+        ? ` · Sinyal ${tradablePre[0].via === 'market-sentiment' ? 'Sentimen' : 'Pra-News'}: ${tradablePre.slice(0, 2).map((t) => `${t.action} ${t.display}`).join(', ')}`
         : '';
       const bias =
         item.preNews !== null && Number.isFinite(item.preNews)
@@ -256,6 +256,7 @@ export function buildAutoBoard({
             pair,
             quote: prices[pair] ?? null,
             prices,
+            bars: bars[pair],
             accountBalance,
             riskPercent,
             now

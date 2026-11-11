@@ -470,15 +470,15 @@ test('pra-news: tiket pra-rilis menghasilkan arah valid, pullback FVG, dan Strad
   assert.equal(eurTicket.tradable, true);
   assert.equal(eurTicket.action, 'SELL', 'USD bullish pra-news harus SELL EURUSD');
   assert.ok(eurTicket.pullbackEntryPrice > eurTicket.entryPrice, 'Limit FVG SELL harus di atas market entry');
-  assert.ok(eurTicket.straddle && eurTicket.straddle.buyStopPrice > prices.EURUSD.ask);
-  assert.ok(eurTicket.straddle && eurTicket.straddle.sellStopPrice < prices.EURUSD.bid);
+  assert.equal(eurTicket.straddle, null, 'sinyal 1 harga BUY/SELL tidak boleh memunculkan Straddle OCO');
 
   const jpyTicket = buildPreNewsTicket({ event: ev, pair: 'USDJPY', quote: prices.USDJPY, prices, now });
   assert.equal(jpyTicket.tradable, true);
   assert.equal(jpyTicket.action, 'BUY', 'USD bullish pra-news harus BUY USDJPY');
   assert.ok(jpyTicket.pullbackEntryPrice < jpyTicket.entryPrice, 'Limit FVG BUY harus di bawah market entry');
+  assert.equal(jpyTicket.straddle, null, 'sinyal 1 harga BUY/SELL tidak boleh memunculkan Straddle OCO');
 
-  // Forecast == Previous -> Straddle OCO only (action NONE)
+  // Forecast == Previous tanpa sentimen pasar -> fallback Straddle OCO (action NONE)
   const neutralEv = makeEvent({
     status: 'UPCOMING',
     actual: null,
@@ -490,5 +490,55 @@ test('pra-news: tiket pra-rilis menghasilkan arah valid, pullback FVG, dan Strad
   const neutralTicket = buildPreNewsTicket({ event: neutralEv, pair: 'EURUSD', quote: prices.EURUSD, prices, now });
   assert.equal(neutralTicket.tradable, false);
   assert.equal(neutralTicket.action, 'NONE');
-  assert.ok(neutralTicket.straddle !== null, 'event netral tetap punya level Straddle OCO');
+  assert.ok(neutralTicket.straddle !== null, 'event netral tanpa sentimen tetap punya fallback Straddle OCO');
+
+  // Forecast == Previous TETAPI sentimen pasar jelas (+0.45% harian) -> 1 harga BUY + SL/TP, straddle null
+  const bullQuote = { ...prices.EURUSD, changePct: 0.45 };
+  const sentimentPre = buildPreNewsTicket({ event: neutralEv, pair: 'EURUSD', quote: bullQuote, prices, now });
+  assert.equal(sentimentPre.tradable, true, 'sentimen pasar bullish harus menghasilkan sinyal siap pakai');
+  assert.equal(sentimentPre.action, 'BUY');
+  assert.equal(sentimentPre.via, 'market-sentiment');
+  assert.ok(Number.isFinite(sentimentPre.entryPrice) && sentimentPre.slPrice < sentimentPre.entryPrice);
+  assert.ok(sentimentPre.tp1Price > sentimentPre.entryPrice && sentimentPre.tp2Price > sentimentPre.tp1Price);
+  assert.equal(sentimentPre.straddle, null, 'bila sentimen pasar memberi arah BUY/SELL, straddle wajib null');
+
+  // Pasca-rilis ACTIVE dengan Actual inline tetapi sentimen pasar bearish (-0.4%) -> 1 harga SELL + SL/TP, straddle null
+  const activeInlineEv = makeEvent({
+    status: 'RELEASED',
+    actual: 0.3,
+    forecast: 0.3,
+    previous: 0.2,
+    releasedAt: new Date(now - 5 * 60000).toISOString()
+  });
+  const bearQuote = { ...prices.EURUSD, changePct: -0.4 };
+  const activeSentimentEval = evaluateSignal({
+    event: activeInlineEv,
+    actual: 0.3,
+    forecast: 0.3,
+    previous: 0.2,
+    pair: 'EURUSD',
+    quote: bearQuote,
+    prices,
+    now
+  });
+  assert.equal(activeSentimentEval.ticket.tradable, true);
+  assert.equal(activeSentimentEval.ticket.action, 'SELL');
+  assert.equal(activeSentimentEval.ticket.via, 'market-sentiment');
+  assert.equal(activeSentimentEval.ticket.straddle, null);
+
+  // Konflik sentimen harian (+0.5%) vs intraday bar (-0.3%) -> tetap netral (NONE)
+  const conflictingBars = [
+    { k: Math.floor((now - 30 * 60000) / 60000), o: 1.105, h: 1.106, l: 1.104, c: 1.105 },
+    { k: Math.floor((now - 5 * 60000) / 60000), o: 1.102, h: 1.103, l: 1.100, c: 1.101 }
+  ];
+  const conflictTicket = buildPreNewsTicket({
+    event: neutralEv,
+    pair: 'EURUSD',
+    quote: bullQuote,
+    prices,
+    bars: conflictingBars,
+    now
+  });
+  assert.equal(conflictTicket.action, 'NONE', 'konflik sentimen harian vs intraday harus menahan diri');
+  assert.equal(conflictTicket.tradable, false);
 });

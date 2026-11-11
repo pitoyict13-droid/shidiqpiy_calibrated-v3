@@ -31,7 +31,7 @@ const PHASE_META: Record<SignalPhase, { label: string; className: string; hint: 
   PRE_RELEASE: {
     label: 'PRA-RILIS',
     className: 'bg-cyan-950 text-cyan-300 border-cyan-800',
-    hint: 'Menggunakan bias pra-news (Forecast vs Previous) & pending order Straddle OCO jelang rilis.'
+    hint: 'Menghasilkan sinyal 1 harga BUY/SELL + SL/TP bila bias pra-news atau sentimen pasar jelas; Straddle OCO hanya bila keduanya netral.'
   },
   COOLDOWN: {
     label: 'SPREADING (<60s)',
@@ -150,13 +150,14 @@ export const PostNewsCalibrator: React.FC<Props> = ({
         pair: selectedPair,
         quote: prices[selectedPair] || null,
         prices,
+        bars: bars[selectedPair],
         accountBalance,
         riskPercent,
         now
       });
     }
     return evalResult.ticket;
-  }, [isPreNewsMode, evalResult.ticket, effectiveEvent, selectedPair, prices, accountBalance, riskPercent, now]);
+  }, [isPreNewsMode, evalResult.ticket, effectiveEvent, selectedPair, prices, bars, accountBalance, riskPercent, now]);
 
   // Tiket untuk SEMUA pair yang tersedia pada event ini (matriks eksekusi).
   const pairTickets: PairTicket[] = useMemo(() => {
@@ -169,6 +170,7 @@ export const PostNewsCalibrator: React.FC<Props> = ({
             pair,
             quote: prices[pair] || null,
             prices,
+            bars: bars[pair],
             accountBalance,
             riskPercent,
             now
@@ -346,7 +348,7 @@ export const PostNewsCalibrator: React.FC<Props> = ({
                 />
                 <span>
                   <strong className="text-slate-200">Simulasi rilis pasca-news (T+5 menit).</strong>{' '}
-                  Tanpa centang, kalibrator menampilkan sinyal <strong>Pra-Rilis</strong> (Forecast vs Previous) &amp; Pending Order <strong>Straddle OCO</strong>.
+                  Tanpa centang, kalibrator menampilkan sinyal <strong>Pra-Rilis / Sentimen Pasar</strong> (1 harga BUY/SELL + SL/TP bila bias atau sentimen terpenuhi).
                 </span>
               </label>
             )}
@@ -532,8 +534,12 @@ export const PostNewsCalibrator: React.FC<Props> = ({
                 <span className="text-[10px] text-slate-400 uppercase font-mono block">
                   {isPreNewsMode ? 'Setup Pra-News' : 'Action & Entry'}
                 </span>
-                <span className={`font-mono font-bold text-sm block ${!tradable ? 'text-slate-500' : ticket.action === 'BUY' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {tradable ? `${ticket.action} / ${ticket.action === 'BUY' ? 'LONG' : 'SHORT'}` : 'STRADDLE / WAIT'}
+                <span className={`font-mono font-bold text-sm block ${ticket.action === 'NONE' ? 'text-amber-300' : ticket.action === 'BUY' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {ticket.action !== 'NONE'
+                    ? `${ticket.action} / ${ticket.action === 'BUY' ? 'LONG' : 'SHORT'}${tradable ? '' : ' (WAIT)'}`
+                    : ticket.straddle
+                    ? 'STRADDLE OCO'
+                    : 'NO TRADE'}
                 </span>
                 <span className="text-[11px] font-mono text-slate-300 block">
                   Market: {fmtPrice(ticket.entryPrice, ticket.digits)}
@@ -564,7 +570,7 @@ export const PostNewsCalibrator: React.FC<Props> = ({
               </div>
             </div>
 
-            {ticket.straddle && (
+            {ticket.straddle && ticket.action === 'NONE' && (
               <div className="p-3 bg-amber-950/15 border border-amber-800/40 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono">
                 <div className="text-amber-300 font-semibold">
                   Straddle Breakout OCO (Buffer ±{ticket.straddle.bufferPips} {ticket.pipUnit}):

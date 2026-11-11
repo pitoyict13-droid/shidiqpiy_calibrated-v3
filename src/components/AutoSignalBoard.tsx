@@ -111,7 +111,7 @@ const TicketTable: React.FC<{ tickets: PairTicket[]; isPreNews?: boolean }> = ({
             <th className="text-right py-1 pr-3 font-semibold">TP1</th>
             <th className="text-right py-1 pr-3 font-semibold">TP2</th>
             <th className="text-right py-1 pr-3 font-semibold">Lot</th>
-            <th className="text-right py-1 font-semibold">Status / Straddle OCO</th>
+            <th className="text-right py-1 font-semibold">Status / Eksekusi</th>
           </tr>
         </thead>
         <tbody>
@@ -133,9 +133,13 @@ const TicketTable: React.FC<{ tickets: PairTicket[]; isPreNews?: boolean }> = ({
                 <td className="py-1.5 text-right">
                   {t.tradable ? (
                     <span className="text-emerald-300 font-bold">
-                      {isPreNews || t.signalType === 'PRE_NEWS' ? 'SIAP (PRA-NEWS)' : 'SIAP (PASCA-NEWS)'}
+                      {t.via === 'market-sentiment'
+                        ? 'SIAP (SENTIMEN)'
+                        : isPreNews || t.signalType === 'PRE_NEWS'
+                        ? 'SIAP (PRA-NEWS)'
+                        : 'SIAP (PASCA-NEWS)'}
                     </span>
-                  ) : t.straddle ? (
+                  ) : t.straddle && t.action === 'NONE' ? (
                     <span className="text-amber-300 font-medium" title={`Buy Stop @ ${t.straddle.buyStopPrice} / Sell Stop @ ${t.straddle.sellStopPrice}`}>
                       STRADDLE OCO
                     </span>
@@ -146,10 +150,10 @@ const TicketTable: React.FC<{ tickets: PairTicket[]; isPreNews?: boolean }> = ({
                   )}
                 </td>
               </tr>
-              {t.straddle && (
+              {t.straddle && !t.tradable && t.action === 'NONE' && (
                 <tr className="bg-slate-950/40 text-[10px] text-slate-400">
                   <td colSpan={9} className="py-1 px-2 border-b border-slate-900 font-mono">
-                    <span className="text-amber-400/90 font-semibold">Straddle Breakout:</span> Buy Stop{' '}
+                    <span className="text-amber-400/90 font-semibold">Fallback Straddle OCO (Netral):</span> Buy Stop{' '}
                     <span className="text-cyan-300 font-bold">{fmtPrice(t.straddle.buyStopPrice, t.digits)}</span> · Sell Stop{' '}
                     <span className="text-cyan-300 font-bold">{fmtPrice(t.straddle.sellStopPrice, t.digits)}</span> · Buffer ±
                     {t.straddle.bufferPips}p · SL {t.straddle.stopLossPips}p / TP {t.straddle.takeProfitPips}p
@@ -215,15 +219,17 @@ const WaitingRow: React.FC<{ item: AutoSignalItem; onOpen: (e: EconomicEvent) =>
         <span>{fmtTime(item.event.scheduledTime)}</span>
         {tradablePre.length > 0 ? (
           <span className="text-cyan-400/90">
-            Setup Pra-News:{' '}
+            Setup 1 Harga ({tradablePre[0].via === 'market-sentiment' ? 'Sentimen' : 'Pra-News'}):{' '}
             {tradablePre.slice(0, 3).map((t) => (
               <span key={t.pair} className="ml-1 text-slate-300">
-                {t.action} {t.display}
+                {t.action} {t.display} @ {fmtPrice(t.entryPrice, t.digits)}
               </span>
             ))}
           </span>
+        ) : item.preNewsTickets && item.preNewsTickets.some((t) => t.straddle) ? (
+          <span className="text-amber-400/80">Fallback Straddle OCO (news & sentimen netral)</span>
         ) : (
-          <span className="text-amber-400/80">Pending Order Straddle OCO siap dipasang</span>
+          <span className="text-slate-500">Menunggu rilis & konfirmasi arah</span>
         )}
       </div>
     </button>
@@ -270,10 +276,17 @@ export const AutoSignalBoard: React.FC<Props> = ({
   const waiting = board.items.filter((i) => i.state === 'WAITING');
   const noData = board.items.filter((i) => i.state === 'NO_DATA');
   const liveTickets = headline ? headline.tickets.filter((t) => t.tradable) : [];
+  const preLiveTickets = headline ? (headline.preNewsTickets || []).filter((t) => t.tradable && t.action !== 'NONE') : [];
 
   const meta = headline ? STATE_META[headline.state] : null;
-  const isBullish = headline?.bias === 'STRONG_BUY' || headline?.bias === 'BUY';
-  const isBearish = headline?.bias === 'STRONG_SELL' || headline?.bias === 'SELL';
+  const isBullish =
+    headline?.state === 'SIGNAL' && liveTickets.length > 0
+      ? liveTickets[0].action === 'BUY'
+      : headline?.bias === 'STRONG_BUY' || headline?.bias === 'BUY';
+  const isBearish =
+    headline?.state === 'SIGNAL' && liveTickets.length > 0
+      ? liveTickets[0].action === 'SELL'
+      : headline?.bias === 'STRONG_SELL' || headline?.bias === 'SELL';
 
   return (
     <div className="space-y-6">
@@ -445,31 +458,42 @@ export const AutoSignalBoard: React.FC<Props> = ({
                   </div>
                 </>
               ) : headline.state === 'WAITING' ? (
-                <>
-                  <div className="text-base font-mono font-bold text-cyan-300 flex items-center gap-1.5">
-                    {headline.preNews !== null && Math.abs(headline.preNews) >= 0.5 ? (
-                      <>
-                        {headline.preNews > 0 ? <TrendingUp className="w-4 h-4 text-emerald-400" /> : <TrendingDown className="w-4 h-4 text-rose-400" />}
-                        <span>BIAS PRA-NEWS</span>
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="w-4 h-4 text-amber-400" />
-                        <span>STRADDLE OCO</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="text-xs text-slate-300 font-mono">
-                    {headline.preNews !== null && Math.abs(headline.preNews) >= 0.5
-                      ? `${headline.event.currency} ${headline.preNews > 0 ? 'Bullish' : 'Bearish'} (${headline.preNews > 0 ? '+' : ''}${headline.preNews.toFixed(2)}σ)`
-                      : 'Konsensus Netral (Breakout OCO)'}
-                  </div>
-                  <div className="text-[11px] text-slate-400 font-mono">
-                    {headline.preNewsTickets && headline.preNewsTickets.find((t) => t.tradable)
-                      ? `${headline.preNewsTickets.filter((t) => t.tradable).length} pair memiliki setup pra-news`
-                      : 'Pending Order Buy/Sell Stop siap'}
-                  </div>
-                </>
+                preLiveTickets.length > 0 ? (
+                  <>
+                    <div
+                      className={`text-2xl font-mono font-bold flex items-center gap-2 ${
+                        preLiveTickets[0].action === 'BUY' ? 'text-emerald-300' : 'text-rose-300'
+                      }`}
+                    >
+                      {preLiveTickets[0].action === 'BUY' ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+                      {preLiveTickets[0].action}
+                    </div>
+                    <div className="text-xs text-slate-300 font-mono">
+                      {preLiveTickets[0].via === 'market-sentiment' ? 'Sentimen Pasar' : 'Bias Pra-News'} ·{' '}
+                      {preLiveTickets.map((t) => `${t.action} ${t.display}`).slice(0, 3).join(' · ')}
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">
+                      Entry {fmtPrice(preLiveTickets[0].entryPrice, preLiveTickets[0].digits)} · SL{' '}
+                      {fmtPrice(preLiveTickets[0].slPrice, preLiveTickets[0].digits)} · TP2{' '}
+                      {fmtPrice(preLiveTickets[0].tp2Price, preLiveTickets[0].digits)}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-base font-mono font-bold text-amber-300 flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-amber-400" />
+                      <span>STRADDLE OCO</span>
+                    </div>
+                    <div className="text-xs text-slate-300 font-mono">
+                      {headline.preNews !== null && Math.abs(headline.preNews) >= 0.5
+                        ? `${headline.event.currency} ${headline.preNews > 0 ? 'Bullish' : 'Bearish'} (${headline.preNews > 0 ? '+' : ''}${headline.preNews.toFixed(2)}σ)`
+                        : 'News & Sentimen Netral (Breakout OCO)'}
+                    </div>
+                    <div className="text-[11px] text-slate-400 font-mono">
+                      Pending Order Buy/Sell Stop siap
+                    </div>
+                  </>
+                )
               ) : (
                 <div className="text-sm text-slate-300 font-semibold">
                   {headline.state === 'NO_DATA'
@@ -487,10 +511,12 @@ export const AutoSignalBoard: React.FC<Props> = ({
               <div className="flex items-center justify-between text-xs mb-1">
                 <span className="font-semibold text-cyan-300 font-mono flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5" />
-                  Sinyal Antisipasi Pra-Rilis & Straddle OCO:
+                  {preLiveTickets.length > 0
+                    ? 'Sinyal Single-Entry Pra-Rilis & Sentimen Pasar (BUY/SELL + SL/TP):'
+                    : 'Sinyal Antisipasi Pra-Rilis (Fallback Straddle OCO saat netral):'}
                 </span>
                 <span className="text-[11px] text-slate-400 font-mono">
-                  Setup siap dieksekusi jelang data rilis
+                  {preLiveTickets.length > 0 ? 'Arah tunggal siap dieksekusi' : 'Menunggu arah konfirmasi'}
                 </span>
               </div>
               <TicketTable tickets={headline.preNewsTickets} isPreNews={true} />

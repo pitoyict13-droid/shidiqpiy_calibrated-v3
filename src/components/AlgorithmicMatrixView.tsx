@@ -135,13 +135,13 @@ export const AlgorithmicMatrixView: React.FC = () => {
             03. Fase Pra &amp; Pasca Rilis
           </span>
           <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 font-mono text-xs space-y-1">
-            <div className="text-cyan-400">PRA-RILIS → Bias Forecast vs Prev &amp; Straddle OCO</div>
+            <div className="text-cyan-400">PRA-RILIS / SENTIMEN → 1 Harga BUY/SELL + SL/TP</div>
             <div className="text-slate-400">T+0s .. T+60s → SPREADING (Tunggu Candle M1)</div>
             <div className="text-emerald-400">T+1m .. invalidation → ACTIVE (Optimal FVG Entry)</div>
             <div className="text-rose-400">&gt; invalidationTimeMinutes → EXPIRED</div>
           </div>
           <p className="text-[11px] text-slate-400">
-            Pra-rilis menyediakan setup arah &amp; Straddle OCO. Pasca-rilis membuka jendela aktif T+60s hingga 45–60 menit setelah rilis untuk impact ≥ MEDIUM dan |z| melewati ambang.
+            Pra-rilis menghasilkan tiket 1 harga (BUY/SELL, Entry, SL, TP) saat bias Forecast vs Previous atau sentimen pasar jelas; Straddle OCO hanya dipakai bila keduanya netral. Pasca-rilis membuka jendela aktif T+60s hingga 45–60 menit setelah rilis untuk impact ≥ MEDIUM.
           </p>
         </div>
 

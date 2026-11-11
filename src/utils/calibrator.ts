@@ -389,6 +389,100 @@ export function volatilityRatio(inst: { refMinuteRangePct: number }, bars: Minut
   return clamp(realized / inst.refMinuteRangePct, 0.7, 1.5);
 }
 
+// --- Sentimen pasar objektif (change % & momentum bar intraday) ---------------
+
+const SENTIMENT_MIN_CHANGE_PCT: Record<string, number> = {
+  FX: 0.15,
+  METAL: 0.25,
+  INDEX: 0.2,
+  CRYPTO: 0.8
+};
+
+const SENTIMENT_MIN_BAR_PCT: Record<string, number> = {
+  FX: 0.06,
+  METAL: 0.12,
+  INDEX: 0.1,
+  CRYPTO: 0.3
+};
+
+/** Hitung perubahan % jangka pendek (30-60 menit terakhir) dari bar 1-menit. */
+export function recentBarMomentumPct(bars: MinuteBar[] | undefined, windowMin = 60): number | null {
+  if (!Array.isArray(bars) || bars.length < 2) return null;
+  const rows = bars
+    .map((b) => ({ t: Number(b && b.k) * 60000, c: Number(b && b.c), h: Number(b && b.h), l: Number(b && b.l) }))
+    .filter((r) => Number.isFinite(r.t) && Number.isFinite(r.c) && r.c > 0 && r.h > r.l)
+    .sort((a, b) => a.t - b.t);
+  if (rows.length < 2) return null;
+
+  const last = rows[rows.length - 1];
+  const cutoff = last.t - windowMin * 60000;
+  let first = rows[0];
+  for (const r of rows) {
+    if (r.t >= cutoff) {
+      first = r;
+      break;
+    }
+  }
+  if (last.t - first.t < 5 * 60000 || first.c <= 0) return null;
+  return Number((((last.c - first.c) / first.c) * 100).toFixed(3));
+}
+
+/**
+ * Resolusi arah tunggal BUY/SELL dari sentimen pasar aktual:
+ * - perubahan % harian (quote.changePct dari TradingView/snapshot), dan/atau
+ * - momentum harga intraday dari bar 1-menit.
+ * Bila keduanya bertentangan di atas ambang -> NONE (disiplin, tidak menebak).
+ */
+export function resolveMarketSentiment(
+  inst: { display: string; klass: string },
+  quote?: PriceQuote | null,
+  bars?: MinuteBar[]
+): DirectionResult {
+  const minChg = SENTIMENT_MIN_CHANGE_PCT[inst.klass] ?? 0.15;
+  const minBar = SENTIMENT_MIN_BAR_PCT[inst.klass] ?? 0.06;
+
+  const chg = quote && isNum(quote.changePct) ? quote.changePct : null;
+  const barPct = recentBarMomentumPct(bars);
+
+  const chgDir: 'BUY' | 'SELL' | 'NONE' =
+    chg !== null && Math.abs(chg) >= minChg ? (chg > 0 ? 'BUY' : 'SELL') : 'NONE';
+  const barDir: 'BUY' | 'SELL' | 'NONE' =
+    barPct !== null && Math.abs(barPct) >= minBar ? (barPct > 0 ? 'BUY' : 'SELL') : 'NONE';
+
+  if (chgDir !== 'NONE' && barDir !== 'NONE') {
+    if (chgDir !== barDir) {
+      return {
+        action: 'NONE',
+        via: 'sentiment-conflict',
+        reason: `Sentimen harian (${chg! > 0 ? '+' : ''}${chg!.toFixed(2)}%) bertentangan dengan momentum intraday (${barPct! > 0 ? '+' : ''}${barPct!.toFixed(2)}%).`
+      };
+    }
+    return {
+      action: chgDir,
+      via: 'market-sentiment',
+      reason: `Sentimen pasar ${inst.display} ${chgDir === 'BUY' ? 'bullish' : 'bearish'} (${chg! > 0 ? '+' : ''}${chg!.toFixed(2)}% harian, ${barPct! > 0 ? '+' : ''}${barPct!.toFixed(2)}% intraday).`
+    };
+  }
+
+  if (barDir !== 'NONE') {
+    return {
+      action: barDir,
+      via: 'market-sentiment',
+      reason: `Momentum intraday ${inst.display} ${barDir === 'BUY' ? 'menguat' : 'melemah'} (${barPct! > 0 ? '+' : ''}${barPct!.toFixed(2)}%).`
+    };
+  }
+
+  if (chgDir !== 'NONE') {
+    return {
+      action: chgDir,
+      via: 'market-sentiment',
+      reason: `Sentimen sesi ${inst.display} ${chgDir === 'BUY' ? 'bullish' : 'bearish'} (${chg! > 0 ? '+' : ''}${chg!.toFixed(2)}%).`
+    };
+  }
+
+  return { action: 'NONE', via: 'market-sentiment', reason: 'Sentimen pasar netral — belum ada arah dominan.' };
+}
+
 // --- Perhitungan utama ----------------------------------------------------------
 
 interface CalibrationInput {
@@ -719,7 +813,8 @@ export function buildPairTicket({
   const tp1Pips = Math.round(slPips * 1.5);
   const tp2Pips = Math.round(slPips * 2.8);
 
-  // Arah: fundamental dulu, lalu dikonfirmasi/diubah oleh reaksi harga terukur.
+  // Arah: fundamental dulu, dikonfirmasi/diubah oleh reaksi harga terukur,
+  // atau sentimen pasar bila rilis inline namun impact >= MEDIUM & jendela ACTIVE.
   const direction = resolvePairAction(event, symbol, calibration.normalizedZScore, zModerate);
   let action = direction.action;
   let via = direction.via;
@@ -737,7 +832,27 @@ export function buildPairTicket({
       via = `${via}+reaction`;
       directionReason += ` Reaksi harga terkonfirmasi searah (+${reaction.movePct}% / ${reaction.minutes} menit).`;
     }
+  } else if (
+    action === 'NONE' &&
+    event.impact !== 'LOW' &&
+    phaseInfo.phase === 'ACTIVE' &&
+    calibration.deviationBasis !== 'none'
+  ) {
+    if (reaction && reaction.dir) {
+      action = reaction.dir === 'long' ? 'BUY' : 'SELL';
+      via = 'price-reaction';
+      directionReason = `Rilis inline konsensus, namun reaksi harga pasca-rilis jelas (${reaction.movePct > 0 ? '+' : ''}${reaction.movePct}% / ${reaction.minutes} menit).`;
+    } else {
+      const sentiment = resolveMarketSentiment(inst, quote, bars);
+      if (sentiment.action !== 'NONE') {
+        action = sentiment.action;
+        via = sentiment.via;
+        directionReason = `Deviasi news inline — ${sentiment.reason}`;
+      }
+    }
   }
+
+  const viaOverride = via === 'price-reaction' || via === 'market-sentiment';
 
   // Gate final.
   let gateReason = '';
@@ -748,7 +863,7 @@ export function buildPairTicket({
   } else if (action === 'NONE') {
     tradable = false;
     gateReason = directionReason;
-  } else if (Math.abs(calibration.normalizedZScore) < zModerate) {
+  } else if (!viaOverride && Math.abs(calibration.normalizedZScore) < zModerate) {
     tradable = false;
     gateReason = `|z| < ${zModerate.toFixed(2)}σ (butuh ${zStrong.toFixed(2)}σ untuk sinyal kuat) — NO TRADE.`;
   } else if (event.impact === 'LOW') {
@@ -788,9 +903,9 @@ export function buildPairTicket({
     tp2Price = roundTo(entryPrice + dir * tp2Pips * inst.pipSize, inst.digits);
   }
 
-  // Straddle Pending Order OCO (Buy Stop & Sell Stop)
+  // Straddle Pending Order OCO hanya untuk fallback bila arah BUY/SELL benar-benar tidak terbentuk.
   let straddle: PairTicket['straddle'] = null;
-  if (priceAvailable) {
+  if (priceAvailable && action === 'NONE' && phaseInfo.phase === 'ACTIVE' && event.impact !== 'LOW') {
     const q = quote as PriceQuote;
     const bufferPips = inst.symbol === 'XAUUSD'
       ? Math.max(35, Math.round(spreadPips * 2 + 25))
@@ -851,12 +966,13 @@ export function buildPairTicket({
   });
 }
 
-/** Tiket eksekusi Pra-News: antisipasi pergerakan dari Forecast vs Previous & Straddle OCO. */
+/** Tiket eksekusi Pra-News: single BUY/SELL (bias news/impact atau sentimen pasar); Straddle OCO hanya bila keduanya netral. */
 export function buildPreNewsTicket({
   event,
   pair,
   quote = null,
   prices = {},
+  bars,
   accountBalance = 10000,
   riskPercent = 1.0,
   now = Date.now()
@@ -865,6 +981,7 @@ export function buildPreNewsTicket({
   pair: string;
   quote?: PriceQuote | null;
   prices?: Record<string, PriceQuote>;
+  bars?: MinuteBar[];
   accountBalance?: number;
   riskPercent?: number;
   now?: number;
@@ -878,7 +995,7 @@ export function buildPreNewsTicket({
 
   const baseExpectedPips = event.calibration?.expectedVolatilityPips?.moderate || 45;
   const { pct, pips } = inst
-    ? expectedMoveForInstrument({ inst, basePips: baseExpectedPips, mid, impact: event.impact })
+    ? expectedMoveForInstrument({ inst, basePips: baseExpectedPips, mid, impact: event.impact, bars })
     : { pct: 0, pips: 0 };
 
   const spreadPips = inst ? (priceAvailable ? Number(quote!.spreadPips) || inst.spreadPips : inst.spreadPips) : 2;
@@ -889,23 +1006,6 @@ export function buildPreNewsTicket({
   slPips = Math.min(slPips, Math.max(minSl, Math.round(pips * 0.9)));
   const tp1Pips = Math.round(slPips * 1.5);
   const tp2Pips = Math.round(slPips * 2.8);
-
-  let straddle: PairTicket['straddle'] = null;
-  if (inst && priceAvailable) {
-    const q = quote as PriceQuote;
-    const bufferPips = inst.symbol === 'XAUUSD'
-      ? Math.max(35, Math.round(spreadPips * 2 + 25))
-      : inst.klass === 'INDEX'
-      ? Math.max(30, Math.round(spreadPips * 3 + 20))
-      : Math.max(15, Math.round(spreadPips * 2.5 + 10));
-    straddle = {
-      buyStopPrice: roundTo(q.ask + bufferPips * inst.pipSize, inst.digits),
-      sellStopPrice: roundTo(q.bid - bufferPips * inst.pipSize, inst.digits),
-      bufferPips,
-      stopLossPips: Math.max(inst.minSlPips, Math.round(bufferPips * 1.2)),
-      takeProfitPips: Math.round(Math.max(inst.minSlPips, Math.round(bufferPips * 1.2)) * 2.0)
-    };
-  }
 
   if (!inst) {
     return {
@@ -937,16 +1037,23 @@ export function buildPreNewsTicket({
       reaction: null,
       validUntil: event.scheduledTime,
       signalType: 'PRE_NEWS',
-      straddle
+      straddle: null
     };
   }
 
-  const hasEdge = zPre !== null && Math.abs(zPre) >= zModerate && event.impact !== 'LOW';
-  const direction = hasEdge
-    ? resolvePairAction(event, symbol, zPre, zModerate)
-    : { action: 'NONE' as const, via: 'pre-news', reason: 'Forecast inline konsensus — tidak ada edge arah pra-news.' };
+  const hasNewsEdge = event.impact !== 'LOW' && zPre !== null && Math.abs(zPre) >= zModerate;
+  let direction: DirectionResult = hasNewsEdge
+    ? resolvePairAction(event, symbol, zPre as number, zModerate)
+    : { action: 'NONE', via: 'pre-news', reason: 'Forecast inline konsensus — cek sentimen pasar.' };
 
-  const action = direction.action;
+  if (event.impact !== 'LOW' && direction.action === 'NONE') {
+    const sentiment = resolveMarketSentiment(inst, quote, bars);
+    if (sentiment.action !== 'NONE') {
+      direction = sentiment;
+    }
+  }
+
+  const action = event.impact === 'LOW' ? ('NONE' as const) : direction.action;
   let entryPrice = NaN;
   let pullbackEntryPrice: number | undefined = undefined;
   let slPrice = NaN;
@@ -964,6 +1071,24 @@ export function buildPreNewsTicket({
     tp2Price = roundTo(entryPrice + dir * tp2Pips * inst.pipSize, inst.digits);
   }
 
+  // Straddle OCO HANYA diisi bila arah BUY/SELL tidak terpenuhi oleh data news maupun sentimen pasar.
+  let straddle: PairTicket['straddle'] = null;
+  if (priceAvailable && action === 'NONE' && event.impact !== 'LOW') {
+    const q = quote as PriceQuote;
+    const bufferPips = inst.symbol === 'XAUUSD'
+      ? Math.max(35, Math.round(spreadPips * 2 + 25))
+      : inst.klass === 'INDEX'
+      ? Math.max(30, Math.round(spreadPips * 3 + 20))
+      : Math.max(15, Math.round(spreadPips * 2.5 + 10));
+    straddle = {
+      buyStopPrice: roundTo(q.ask + bufferPips * inst.pipSize, inst.digits),
+      sellStopPrice: roundTo(q.bid - bufferPips * inst.pipSize, inst.digits),
+      bufferPips,
+      stopLossPips: Math.max(inst.minSlPips, Math.round(bufferPips * 1.2)),
+      takeProfitPips: Math.round(Math.max(inst.minSlPips, Math.round(bufferPips * 1.2)) * 2.0)
+    };
+  }
+
   const mids: Record<string, number> = {};
   for (const [sym, q] of Object.entries(prices || {})) {
     if (q && isNum(q.mid) && q.mid > 0) mids[sym] = q.mid;
@@ -974,19 +1099,22 @@ export function buildPreNewsTicket({
   const riskAmount = Number(((accountBalance * riskPercent) / 100).toFixed(2));
   const lots = slPips > 0 && pipValue > 0 ? Number(Math.max(0.01, riskAmount / (slPips * pipValue)).toFixed(2)) : 0.01;
 
-  let tradable = hasEdge && action !== 'NONE' && priceAvailable;
+  const tradable = action !== 'NONE' && event.impact !== 'LOW' && priceAvailable;
   let gateReason = '';
   if (event.impact === 'LOW') {
     gateReason = 'Impact LOW — tidak diperdagangkan.';
   } else if (!priceAvailable) {
     gateReason = 'Harga pasar tidak tersedia.';
-  } else if (!hasEdge || action === 'NONE') {
-    gateReason = 'Bias pra-news netral — gunakan pending order Straddle (Buy Stop / Sell Stop).';
+  } else if (action === 'NONE') {
+    gateReason = 'Bias pra-news & sentimen pasar netral — fallback Straddle OCO.';
   }
 
-  const directionReason = hasEdge && action !== 'NONE'
-    ? `Bias pra-news ${zPre > 0 ? '+' : ''}${zPre.toFixed(2)}σ (${direction.reason})`
-    : 'Konsensus netral / Forecast ≈ Previous — pasang Straddle OCO breakout.';
+  const directionReason =
+    action !== 'NONE'
+      ? direction.via === 'market-sentiment'
+        ? direction.reason
+        : `Bias pra-news ${zPre! > 0 ? '+' : ''}${zPre!.toFixed(2)}σ (${direction.reason})`
+      : 'Konsensus & sentimen netral — fallback Straddle OCO breakout.';
 
   return {
     pair: symbol,

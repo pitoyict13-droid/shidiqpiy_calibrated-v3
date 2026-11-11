@@ -63,13 +63,34 @@ test('papan sinyal otomatis ter-render lengkap tanpa error', () => {
   assert.match(html, /TANPA ANGKA/, 'pidato tanpa angka ditandai');
   assert.match(html, /hitung mundur|Cara kerja otomatis/);
 
-  // Tiket: pasangan angka Entry/SL/TP harus muncul untuk sinyal yang lolos gate.
+  // Tiket: pasangan angka Entry/SL/TP harus muncul untuk sinyal yang lolos gate, tanpa STRADDLE OCO pada bagian sinyal aktif.
   assert.match(html, /Entry/);
   assert.match(html, /\bSL\b/);
   assert.match(html, /\bTP2\b/);
+  const heroAndReleasedSection = html.split('Berikutnya (Pra-News')[0];
+  assert.doesNotMatch(
+    heroAndReleasedSection,
+    /Fallback Straddle OCO|Straddle Breakout|STRADDLE OCO/,
+    'sinyal arah tunggal tidak boleh menampilkan STRADDLE OCO'
+  );
   // Kontrol mode contoh selalu tersedia (mati karena sudah ada rilis riil).
   assert.match(html, /Lihat contoh sinyal \(simulasi\)|Simulasi ON/);
   assert.ok(html.length > 2000, 'markup tidak boleh kosong');
+});
+
+test('event pra-rilis dengan sentimen pasar jelas menampilkan sinyal 1 harga, bukan STRADDLE OCO', () => {
+  const neutralUpcoming = parseCalendarEvents(
+    [{ Date: new Date(now + 2 * 3600000).toISOString(), Event: 'GDP q/q', Country: 'EUR', Importance: 3, Forecast: '0.4%', Previous: '0.4%' }],
+    { now, available: AVAILABLE, maxAgeHours: 168 }
+  );
+  const sentimentPrices = {
+    ...PRICES,
+    EURUSD: { ...PRICES.EURUSD, changePct: 0.42 }
+  };
+  const html = renderWith({ events: neutralUpcoming, prices: sentimentPrices, defaultSimulate: false });
+  assert.match(html, /Sentimen Pasar|SIAP \(SENTIMEN\)/);
+  assert.match(html, /Entry/);
+  assert.doesNotMatch(html, /STRADDLE OCO|Fallback Straddle OCO/, 'bila sentimen pasar memberi arah BUY/SELL, tidak boleh muncul STRADDLE OCO');
 });
 
 const renderWith = (props) =>
