@@ -315,12 +315,18 @@ export function buildAutoBoard({
   });
 
   // Fokus papan: sinyal riil dulu, lalu simulasi, lalu rilis terbaru,
-  // baru event MEDIUM+ terdekat yang masih menunggu (bukan pidato tanpa angka).
+  // lalu event MEDIUM+ terdekat yang sudah punya sinyal 1 harga (pra-news/sentimen),
+  // baru event HIGH/MEDIUM terdekat lainnya.
+  const hasPreSignal = (i: AutoSignalItem) =>
+    i.state === 'WAITING' && (i.preNewsTickets || []).some((t) => t.tradable && t.action !== 'NONE');
+
   const headline =
     sorted.find((i) => i.state === 'SIGNAL' && !i.simulated) ||
     sorted.find((i) => i.state === 'SIGNAL') ||
     sorted.find((i) => !i.simulated && (i.state === 'COOLDOWN' || i.state === 'NO_TRADE')) ||
     sorted.find((i) => i.state === 'COOLDOWN' || i.state === 'NO_TRADE') ||
+    sorted.find((i) => hasPreSignal(i) && i.event.impact === 'HIGH') ||
+    sorted.find((i) => hasPreSignal(i)) ||
     sorted.find((i) => i.state === 'WAITING' && i.event.impact === 'HIGH') ||
     sorted.find((i) => i.state === 'WAITING' && i.event.impact !== 'LOW') ||
     sorted[0] ||

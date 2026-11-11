@@ -253,6 +253,7 @@ export const AutoSignalBoard: React.FC<Props> = ({
   // Mode contoh aktif sejak awal (bila belum ada rilis) agar keputusan akhir
   // langsung terlihat; efek di bawah mematikannya begitu data riil masuk.
   const [simulate, setSimulate] = useState<boolean>(defaultSimulate && !hasRealRelease);
+  const [showAllWaiting, setShowAllWaiting] = useState<boolean>(false);
 
   // Jam berjalan agar hitung mundur & fase sinyal selalu akurat.
   useEffect(() => {
@@ -273,7 +274,26 @@ export const AutoSignalBoard: React.FC<Props> = ({
 
   const headline = board.headline;
   const released = board.items.filter((i) => i.state !== 'WAITING' && i.state !== 'NO_DATA');
-  const waiting = board.items.filter((i) => i.state === 'WAITING');
+  const waiting = useMemo(() => {
+    const impactRank: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    return board.items
+      .filter((i) => i.state === 'WAITING')
+      .sort((a, b) => {
+        const aSig = (a.preNewsTickets || []).some((t) => t.tradable && t.action !== 'NONE') ? 0 : 1;
+        const bSig = (b.preNewsTickets || []).some((t) => t.tradable && t.action !== 'NONE') ? 0 : 1;
+        if (aSig !== bSig) return aSig - bSig;
+        const imp = (impactRank[a.event.impact] ?? 2) - (impactRank[b.event.impact] ?? 2);
+        if (imp !== 0) return imp;
+        return (Date.parse(a.event.scheduledTime) || 0) - (Date.parse(b.event.scheduledTime) || 0);
+      });
+  }, [board.items]);
+  const readyPreSignals = useMemo(
+    () =>
+      waiting.filter((i) =>
+        (i.preNewsTickets || []).some((t) => t.tradable && t.action !== 'NONE')
+      ),
+    [waiting]
+  );
   const noData = board.items.filter((i) => i.state === 'NO_DATA');
   const liveTickets = headline ? headline.tickets.filter((t) => t.tradable) : [];
   const preLiveTickets = headline ? (headline.preNewsTickets || []).filter((t) => t.tradable && t.action !== 'NONE') : [];
@@ -525,6 +545,57 @@ export const AutoSignalBoard: React.FC<Props> = ({
         </div>
       )}
 
+      {/* Sinyal 1 Harga Aktif dari Pra-News / Sentimen Pasar (seluruh event MEDIUM/HIGH yang memenuhi syarat) */}
+      {readyPreSignals.length > 0 && (
+        <div className="bg-slate-900 border border-cyan-900/50 rounded-xl overflow-hidden">
+          <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-cyan-400" />
+              Semua Event Ber-Sinyal 1 Harga (Pra-Rilis &amp; Sentimen Pasar)
+            </h3>
+            <span className="text-[11px] font-mono text-cyan-300">
+              {readyPreSignals.length} event siap (BUY/SELL + SL/TP)
+            </span>
+          </div>
+          <div className="divide-y divide-slate-800/80">
+            {readyPreSignals.map((item) => {
+              const tradableOnly = (item.preNewsTickets || []).filter((t) => t.tradable && t.action !== 'NONE');
+              return (
+                <div key={item.event.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-cyan-500/15 text-cyan-300 rounded border border-cyan-500/40">
+                          {tradableOnly[0]?.via === 'market-sentiment' ? 'SENTIMEN PASAR' : 'PRA-RILIS'}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 bg-slate-800 text-cyan-300 rounded border border-slate-700">
+                          {item.event.currency}
+                        </span>
+                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${IMPACT_CHIP[item.event.impact]}`}>
+                          {item.event.impact}
+                        </span>
+                        <span className="text-sm font-semibold text-slate-100">{item.event.title}</span>
+                      </div>
+                      <div className="text-[11px] font-mono text-slate-400">
+                        {fmtTime(item.event.scheduledTime)} · T-{formatCountdown(item.countdownMs ?? 0)}
+                        {item.preNews !== null && Number.isFinite(item.preNews) && ` · pra-news ${item.preNews > 0 ? '+' : ''}${item.preNews.toFixed(2)}σ`}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onOpenEvent(item.event)}
+                      className="text-xs px-2.5 py-1.5 rounded-md border border-slate-700 bg-slate-950 text-slate-300 hover:border-cyan-600 hover:text-cyan-300 transition-colors shrink-0"
+                    >
+                      Detail
+                    </button>
+                  </div>
+                  <TicketTable tickets={tradableOnly} isPreNews={true} />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Rilis terbaru / status pasca-rilis */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
         <div className="p-4 border-b border-slate-800 flex items-center justify-between gap-3">
@@ -588,24 +659,34 @@ export const AutoSignalBoard: React.FC<Props> = ({
 
       {/* Jadwal berikutnya (pra-news) */}
       <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Clock className="w-4 h-4 text-cyan-400" />
-            Berikutnya (Pra-News, urut hitung mundur)
+            Berikutnya (Prioritas Sinyal &amp; Impact HIGH/MEDIUM)
           </h3>
-          <span className="text-[11px] font-mono text-slate-400">{waiting.length} menunggu</span>
+          <div className="flex items-center gap-3">
+            <span className="text-[11px] font-mono text-slate-400">{waiting.length} menunggu</span>
+            {waiting.length > 10 && (
+              <button
+                onClick={() => setShowAllWaiting(!showAllWaiting)}
+                className="text-[11px] font-mono text-cyan-300 hover:text-cyan-200 underline"
+              >
+                {showAllWaiting ? 'Ringkas (10 teratas)' : `Tampilkan semua (${waiting.length})`}
+              </button>
+            )}
+          </div>
         </div>
         <div className="space-y-2">
-          {waiting.slice(0, 8).map((item) => (
+          {(showAllWaiting ? waiting : waiting.slice(0, 10)).map((item) => (
             <WaitingRow key={item.event.id} item={item} onOpen={onOpenEvent} />
           ))}
           {waiting.length === 0 && (
             <div className="text-sm text-slate-400 p-2">Tidak ada jadwal menunggu pada muat ini.</div>
           )}
         </div>
-        {waiting.length > 8 && (
+        {waiting.length > 10 && !showAllWaiting && (
           <div className="text-[11px] font-mono text-slate-500">
-            +{waiting.length - 8} jadwal lainnya — lihat tab “Kalender & Pre-News” untuk daftar lengkap.
+            +{waiting.length - 10} jadwal lainnya — klik “Tampilkan semua ({waiting.length})” atau lihat tab “Kalender & Pre-News”.
           </div>
         )}
         {noData.length > 0 && (

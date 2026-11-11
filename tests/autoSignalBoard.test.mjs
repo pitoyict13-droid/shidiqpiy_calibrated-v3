@@ -67,7 +67,7 @@ test('papan sinyal otomatis ter-render lengkap tanpa error', () => {
   assert.match(html, /Entry/);
   assert.match(html, /\bSL\b/);
   assert.match(html, /\bTP2\b/);
-  const heroAndReleasedSection = html.split('Berikutnya (Pra-News')[0];
+  const heroAndReleasedSection = html.split('Berikutnya (')[0];
   assert.doesNotMatch(
     heroAndReleasedSection,
     /Fallback Straddle OCO|Straddle Breakout|STRADDLE OCO/,
@@ -104,6 +104,23 @@ const renderWith = (props) =>
       ...props
     })
   );
+
+test('semua event ber-sinyal 1 harga (HIGH/MEDIUM) tampil langsung meski berada di bawah banyak event LOW', () => {
+  const mixed = parseCalendarEvents(
+    [
+      { Date: new Date(now + 1 * 3600000).toISOString(), Event: 'Italian Industrial Production m/m', Country: 'EUR', Importance: 1, Forecast: '0.7%', Previous: '-1.3%' },
+      { Date: new Date(now + 2 * 3600000).toISOString(), Event: 'Bank Holiday', Country: 'USD', Importance: 1 },
+      { Date: new Date(now + 12 * 3600000).toISOString(), Event: 'GDP m/m', Country: 'GBP', Importance: 3, Forecast: '0.1%', Previous: '0.1%' },
+      { Date: new Date(now + 24 * 3600000).toISOString(), Event: 'Core PPI m/m', Country: 'USD', Importance: 3, Forecast: '0.2%', Previous: '0.4%' },
+      { Date: new Date(now + 24 * 3600000).toISOString(), Event: 'PPI m/m', Country: 'USD', Importance: 3, Forecast: '0.1%', Previous: '0.5%' }
+    ],
+    { now, available: AVAILABLE, maxAgeHours: 168 }
+  );
+  const html = renderWith({ events: mixed, defaultSimulate: false });
+  assert.match(html, /Semua Event Ber-Sinyal 1 Harga/);
+  assert.ok(html.includes('Core PPI m/m'), 'Core PPI harus tampil di papan sinyal 1 harga');
+  assert.ok(html.includes('PPI m/m'), 'PPI m/m harus tampil di papan sinyal 1 harga');
+});
 
 test('papan tetap tampil saat semua jadwal menunggu (mode contoh dimatikan)', () => {
   const upcoming = parseCalendarEvents(
