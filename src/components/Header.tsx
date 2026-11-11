@@ -94,7 +94,7 @@ export const Header: React.FC<Props> = ({
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            Arsip Pasca-News
+            Arsip & Winrate
           </button>
 
           <button

@@ -11,7 +11,8 @@
 // angka hardcode di server.
 // =============================================================================
 
-import type { MinuteBar, PriceQuote } from '../types/trading';
+import type { MinuteBar, PriceQuote, SignalHistoryRecord } from '../types/trading';
+import type { ReactionFeedPayload } from './winrateStats';
 import { INSTRUMENT_LIST, normalizeSymbol, getInstrument } from './instruments.ts';
 
 export interface MarketsFile {
@@ -47,6 +48,8 @@ export interface MarketDataBundle {
   crypto?: CryptoFile | null;
   broker?: BrokerFile | null;
   calendar?: unknown[] | null;
+  reaction?: ReactionFeedPayload | null;
+  signalHistory?: SignalHistoryRecord[] | null;
   source: string;
   generatedAt: string | null;
 }
@@ -101,14 +104,16 @@ export async function fetchMarketSnapshot(): Promise<MarketDataBundle> {
     };
   }
 
-  const [markets, forex, indices, crypto, broker, calendar] = await Promise.all([
+  const [markets, forex, indices, crypto, broker, calendar, reaction, signalHistory] = await Promise.all([
     // Adaptif terhadap root (/), /dist/index.html, maupun subpath GitHub Pages (/repo/).
     getJson(dataUrl('markets.json')),
     getJson(dataUrl('forex.json')),
     getJson(dataUrl('indices.json')),
     getJson(dataUrl('crypto.json')),
     getJson(dataUrl('forex-broker.json')),
-    getJson(dataUrl('calendar.json'))
+    getJson(dataUrl('calendar.json')),
+    getJson(dataUrl('reaction.json')),
+    getJson(dataUrl('signal-history.json'))
   ]);
 
   return {
@@ -118,6 +123,8 @@ export async function fetchMarketSnapshot(): Promise<MarketDataBundle> {
     crypto,
     broker,
     calendar,
+    reaction: reaction || null,
+    signalHistory: Array.isArray(signalHistory) ? signalHistory : null,
     source: markets || forex ? 'file' : 'none',
     generatedAt: (markets && markets.generatedAt) || (forex && forex.generatedAt) || null
   };

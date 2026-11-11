@@ -880,6 +880,7 @@ async function fetchMarkets({ price, forexData, cryptoData }) {
 // bar 1 menit yang sudah diambil fetchMarkets(): close terakhir sebelum rilis
 // dibandingkan close pada window settle..horizon sesudahnya.
 const REACTION_FILE = 'data/reaction.json';
+const SIGNAL_HISTORY_FILE = 'data/signal-history.json';
 const REACTION_SETTLE_MIN = 15;
 const REACTION_HORIZON_MIN = 45;
 const REACTION_MIN_MOVE_PCT = 0.03;
@@ -948,6 +949,157 @@ export function buildReactionPayload(events, markets, now = Date.now(), holdMs =
   return { generatedAt: (markets && markets.generatedAt) || new Date(now).toISOString(), events: keyed };
 }
 
+const PIP_SIZE_MAP = {
+  USDJPY: 0.01, GBPJPY: 0.01, EURJPY: 0.01,
+  XAUUSD: 0.1, NAS100: 1, US500: 1, BTCUSD: 1, ETHUSD: 1
+};
+
+function calcPips(pair, delta) {
+  const pip = PIP_SIZE_MAP[pair] || 0.0001;
+  return Number((delta / pip).toFixed(1));
+}
+
+export function evaluatePendingHistory(records, markets, reaction, now = Date.now()) {
+  if (!Array.isArray(records)) return [];
+  const pairsMap = markets?.pairs || {};
+  const reactionEvents = reaction?.events || {};
+  const nowIso = new Date(now).toISOString();
+
+  return records.map((rec) => {
+    if (!rec || rec.outcome !== 'PENDING') return rec;
+    const isBuy = rec.action === 'BUY';
+    const dir = isBuy ? 1 : -1;
+    const slDist = Math.abs((rec.entryPrice ?? 0) - (rec.slPrice ?? 0));
+    if (!(slDist > 0)) return rec;
+
+    const bars = (pairsMap[rec.pair]?.bars || [])
+      .filter((b) => b && Number.isFinite(b.k) && b.k * 60000 >= Date.parse(rec.createdAt) && Number.isFinite(b.h) && Number.isFinite(b.l) && Number.isFinite(b.c) && b.c > 0)
+      .sort((a, b) => a.k - b.k);
+
+    let hitTp1 = false;
+    const createdMs = Date.parse(rec.createdAt);
+    for (const bar of bars) {
+      const barMs = bar.k * 60000;
+      const hitSl = isBuy ? bar.l <= rec.slPrice : bar.h >= rec.slPrice;
+      const reachedTp1 = isBuy ? bar.h >= rec.tp1Price : bar.l <= rec.tp1Price;
+      const reachedTp2 = isBuy ? bar.h >= rec.tp2Price : bar.l <= rec.tp2Price;
+
+      if (hitSl && !hitTp1) {
+        const quickReversal = Number.isFinite(createdMs) && barMs - createdMs <= 15 * 60000;
+        const delta = -slDist;
+        return {
+          ...rec,
+          outcome: quickReversal ? 'FAKE_REVERSAL' : 'LOSS_SL',
+          pipsResult: calcPips(rec.pair, delta),
+          rMultiple: -1,
+          evaluatedAt: new Date(barMs).toISOString(),
+          source: '1m-bars',
+          evaluationNote: quickReversal
+            ? 'Fake signal: harga berbalik menembus SL dalam <=15 menit setelah sinyal aktif.'
+            : 'Stop Loss tersentuh lebih dulu pada candle 1-menit.'
+        };
+      }
+      if (reachedTp2) {
+        const delta = Math.abs(rec.tp2Price - rec.entryPrice);
+        return {
+          ...rec,
+          outcome: 'WIN_TP2',
+          pipsResult: calcPips(rec.pair, delta),
+          rMultiple: Number((delta / slDist).toFixed(2)),
+          evaluatedAt: new Date(barMs).toISOString(),
+          source: '1m-bars',
+          evaluationNote: 'Target TP2 tercapai penuh pada candle 1-menit.'
+        };
+      }
+      if (reachedTp1) hitTp1 = true;
+      if (hitTp1 && hitSl) {
+        return {
+          ...rec,
+          outcome: 'WIN_TP1',
+          pipsResult: calcPips(rec.pair, Math.abs(rec.tp1Price - rec.entryPrice) * 0.5),
+          rMultiple: Number(((Math.abs(rec.tp1Price - rec.entryPrice) / slDist) * 0.5).toFixed(2)),
+          evaluatedAt: new Date(barMs).toISOString(),
+          source: '1m-bars',
+          evaluationNote: 'TP1 tercapai lalu berbalik ke SL; hasil parsial TP1.'
+        };
+      }
+    }
+
+    if (hitTp1) {
+      const delta = Math.abs(rec.tp1Price - rec.entryPrice);
+      return {
+        ...rec,
+        outcome: 'WIN_TP1',
+        pipsResult: calcPips(rec.pair, delta),
+        rMultiple: Number((delta / slDist).toFixed(2)),
+        evaluatedAt: nowIso,
+        source: '1m-bars',
+        evaluationNote: 'Target TP1 tercapai pada candle 1-menit.'
+      };
+    }
+
+    let reactSnap = reactionEvents[rec.eventId]?.pairs?.[rec.pair] || reactionEvents[rec.eventId]?.pairs?.[rec.display];
+    if (!reactSnap) {
+      const schedMs = Date.parse(rec.scheduledTime);
+      for (const [key, payload] of Object.entries(reactionEvents)) {
+        const [rawTime, rawTitle] = key.split('|');
+        if (!rawTitle || rawTitle.trim().toLowerCase() !== String(rec.eventTitle || '').trim().toLowerCase()) continue;
+        const keyMs = Date.parse(payload?.releasedAt || rawTime || '');
+        if (Number.isFinite(schedMs) && Number.isFinite(keyMs) && Math.abs(keyMs - schedMs) <= 2 * 3600000) {
+          reactSnap = payload?.pairs?.[rec.display] || payload?.pairs?.[rec.pair];
+          if (reactSnap) break;
+        }
+      }
+    }
+    if (reactSnap && Number.isFinite(reactSnap.baseClose) && Number.isFinite(reactSnap.lastClose) && reactSnap.dir) {
+      const expectedDir = isBuy ? 'long' : 'short';
+      const aligned = reactSnap.dir === expectedDir;
+      const moveDelta = (reactSnap.lastClose - reactSnap.baseClose) * dir;
+      return {
+        ...rec,
+        outcome: aligned ? 'PROFIT_MOVE' : 'FAKE_REVERSAL',
+        pipsResult: calcPips(rec.pair, moveDelta),
+        rMultiple: Number((moveDelta / slDist).toFixed(2)),
+        evaluatedAt: nowIso,
+        source: 'reaction-feed',
+        evaluationNote: aligned
+          ? `Sesuai arah (${reactSnap.movePct > 0 ? '+' : ''}${reactSnap.movePct}% dalam ${reactSnap.minutes ?? '?'}m pasca rilis).`
+          : `Fake signal pasca-rilis: pasar bergerak berlawanan (${reactSnap.dir.toUpperCase()} ${reactSnap.movePct}%).`
+      };
+    }
+
+    const quotePrice = pairsMap[rec.pair]?.price;
+    if (Number.isFinite(quotePrice) && quotePrice > 0) {
+      const reachedTp2 = isBuy ? quotePrice >= rec.tp2Price : quotePrice <= rec.tp2Price;
+      const reachedTp1 = isBuy ? quotePrice >= rec.tp1Price : quotePrice <= rec.tp1Price;
+      const hitSl = isBuy ? quotePrice <= rec.slPrice : quotePrice >= rec.slPrice;
+      if (reachedTp2) {
+        const delta = Math.abs(rec.tp2Price - rec.entryPrice);
+        return { ...rec, outcome: 'WIN_TP2', pipsResult: calcPips(rec.pair, delta), rMultiple: Number((delta / slDist).toFixed(2)), evaluatedAt: nowIso, source: 'live-quote', evaluationNote: 'Quote pasar menembus TP2.' };
+      }
+      if (reachedTp1) {
+        const delta = Math.abs(rec.tp1Price - rec.entryPrice);
+        return { ...rec, outcome: 'WIN_TP1', pipsResult: calcPips(rec.pair, delta), rMultiple: Number((delta / slDist).toFixed(2)), evaluatedAt: nowIso, source: 'live-quote', evaluationNote: 'Quote pasar menembus TP1.' };
+      }
+      if (hitSl) {
+        return { ...rec, outcome: 'LOSS_SL', pipsResult: calcPips(rec.pair, -slDist), rMultiple: -1, evaluatedAt: nowIso, source: 'live-quote', evaluationNote: 'Quote pasar menembus SL.' };
+      }
+    }
+
+    return rec;
+  });
+}
+
+async function readSignalHistory() {
+  try {
+    const raw = await fs.readFile(SIGNAL_HISTORY_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.records)) return parsed.records;
+  } catch {}
+  return [];
+}
+
 export async function main() {
   const events = await fetchCalendar();
   const [price, forexData, cryptoData, indices] = await Promise.all([fetchMarket(), fetchForex(), fetchCrypto(), fetchIndices()]);
@@ -956,6 +1108,9 @@ export async function main() {
   const reaction = buildReactionPayload(events, markets, Date.now(), REACTION_HOLD_MS, extraBars);
   await fs.writeFile(REACTION_FILE, JSON.stringify(reaction, null, 2));
   console.log('Reaksi harga pasca-rilis tersimpan:', Object.keys(reaction.events).length, 'event.');
+  const updatedHistory = evaluatePendingHistory(await readSignalHistory(), markets, reaction);
+  await fs.writeFile(SIGNAL_HISTORY_FILE, JSON.stringify(updatedHistory, null, 2));
+  console.log('Riwayat sinyal winrate tersimpan:', updatedHistory.length, 'tiket.');
   const forex = forexData && forexData.rates;
   const crypto = cryptoData && cryptoData.rates;
   const indexPrices = indices

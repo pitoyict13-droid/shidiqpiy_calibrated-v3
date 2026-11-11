@@ -234,3 +234,71 @@ export interface AIEventAnalysis {
   liquidityWarnings: string[];
   calibratedRulesSummary: string;
 }
+
+export type SignalOutcome =
+  | 'WIN_TP2'
+  | 'WIN_TP1'
+  | 'PROFIT_MOVE'
+  | 'FAKE_REVERSAL'
+  | 'LOSS_SL'
+  | 'BREAKEVEN'
+  | 'PENDING';
+
+export interface SignalHistoryRecord {
+  id: string;
+  eventId: string;
+  eventTitle: string;
+  currency: string;
+  impact: ImpactLevel;
+  scheduledTime: string;
+  pair: string;
+  display: string;
+  action: 'BUY' | 'SELL';
+  signalType: 'PRE_NEWS' | 'POST_NEWS';
+  via: string;
+  entryPrice: number;
+  slPrice: number;
+  tp1Price: number;
+  tp2Price: number;
+  digits: number;
+  pipUnit: string;
+  createdAt: string;
+  evaluatedAt?: string;
+  outcome: SignalOutcome;
+  pipsResult: number;
+  rMultiple: number;
+  evaluationNote: string;
+  source: '1m-bars' | 'reaction-feed' | 'live-quote' | 'pending';
+}
+
+export interface PairWinrateStats {
+  pair: string;
+  display: string;
+  total: number;
+  evaluated: number;
+  wins: number;
+  losses: number;
+  fakeSignals: number;
+  pending: number;
+  winratePct: number | null;
+  fakeRatePct: number | null;
+  netPips: number;
+  netR: number;
+  verdict: 'PROFITABLE' | 'MIXED' | 'RAWAN_FAKE' | 'NO_DATA';
+}
+
+export interface WinrateSummary {
+  overall: {
+    total: number;
+    evaluated: number;
+    wins: number;
+    losses: number;
+    fakeSignals: number;
+    pending: number;
+    winratePct: number | null;
+    fakeRatePct: number | null;
+    netPips: number;
+    netR: number;
+  };
+  byPair: PairWinrateStats[];
+}

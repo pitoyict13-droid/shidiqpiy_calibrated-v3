@@ -10,12 +10,23 @@ import { AIAnalysisModal } from './components/AIAnalysisModal';
 import { AddEventModal } from './components/AddEventModal';
 import { UpdateActualModal } from './components/UpdateActualModal';
 import { EbookManualView } from './components/EbookManualView';
-import { EconomicEvent, MarketPrice, AIEventAnalysis, PriceQuote, MinuteBar } from './types/trading';
+import { EconomicEvent, MarketPrice, AIEventAnalysis, PriceQuote, MinuteBar, SignalHistoryRecord } from './types/trading';
 import { INITIAL_ECONOMIC_EVENTS } from './data/economicEvents';
 import { parseCalendarEvents, buildCalibrationFor, affectedPairsFor, buildPreNewsScenarios, pickEventSource } from './utils/calendar';
 import { fetchMarketSnapshot, buildPriceMap, barsFromBundle, fetchLivePrices, describeSource, dataUrl } from './utils/marketData';
 import { calculateCalibration } from './utils/calibrator';
 import { playCountdownBeep, playReleaseChime } from './utils/audioAlert';
+import {
+  syncAndEvaluateHistory,
+  loadLocalSignalHistory,
+  saveLocalSignalHistory,
+  clearLocalSignalHistory,
+  ReactionFeedPayload
+} from './utils/winrateStats';
+
+function signalHistorySignature(records: SignalHistoryRecord[]): string {
+  return records.map((r) => `${r.id}:${r.outcome}:${r.pipsResult}:${r.source}`).join('|');
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'auto' | 'calendar' | 'calibrator' | 'matrix' | 'archive' | 'ebook'>('auto');
@@ -27,6 +38,9 @@ export default function App() {
   // Peta harga riil (snapshot data/*.json + live) & bar 1-menit untuk reaksi pasca-rilis
   const [priceMap, setPriceMap] = useState<Record<string, PriceQuote>>({});
   const [bars, setBars] = useState<Record<string, MinuteBar[]>>({});
+  const [reactionEvents, setReactionEvents] = useState<ReactionFeedPayload['events']>({});
+  const [signalHistory, setSignalHistory] = useState<SignalHistoryRecord[]>(() => loadLocalSignalHistory());
+  const skipRepoHistoryRef = React.useRef(false);
   const [priceSource, setPriceSource] = useState<string>('memuat data pasar…');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [autoSync, setAutoSync] = useState<boolean>(true);
@@ -97,7 +111,26 @@ export default function App() {
     try {
       const bundle = await fetchMarketSnapshot();
       const snapshot = buildPriceMap(bundle);
-      setBars(barsFromBundle(bundle));
+      const nextBars = barsFromBundle(bundle);
+      const nextReactions = bundle.reaction?.events || {};
+      setBars(nextBars);
+      setReactionEvents(nextReactions);
+
+      if (!skipRepoHistoryRef.current && Array.isArray(bundle.signalHistory) && bundle.signalHistory.length > 0) {
+        const repoHistory = bundle.signalHistory;
+        setSignalHistory((prev) => {
+          const merged = syncAndEvaluateHistory({
+            existingRecords: [...repoHistory, ...prev],
+            events: [],
+            prices: snapshot,
+            bars: nextBars,
+            reactionEvents: nextReactions
+          });
+          if (signalHistorySignature(prev) === signalHistorySignature(merged)) return prev;
+          saveLocalSignalHistory(merged);
+          return merged;
+        });
+      }
 
       const live = await fetchLivePrices(snapshot);
       setPriceMap(live.prices);
@@ -125,6 +158,30 @@ export default function App() {
     fetchEvents();
     loadMarketData();
   }, []);
+
+  // Sinkronisasi & evaluasi otomatis riwayat sinyal untuk statistik winrate (Profit vs Fake)
+  useEffect(() => {
+    if (events.length === 0 && Object.keys(priceMap).length === 0) return;
+    setSignalHistory((prev) => {
+      const next = syncAndEvaluateHistory({
+        existingRecords: prev,
+        events,
+        prices: priceMap,
+        bars,
+        reactionEvents
+      });
+      if (signalHistorySignature(prev) === signalHistorySignature(next)) return prev;
+      saveLocalSignalHistory(next);
+      return next;
+    });
+  }, [events, priceMap, bars, reactionEvents]);
+
+  const handleResetSignalHistory = () => {
+    skipRepoHistoryRef.current = true;
+    clearLocalSignalHistory();
+    setSignalHistory([]);
+    showToast('Riwayat lokal statistik winrate telah direset.');
+  };
 
   // Harga live polling (setiap 20 detik — TradingView/gold-api/Binance)
   useEffect(() => {
@@ -355,6 +412,8 @@ export default function App() {
         {activeTab === 'archive' && (
           <PascaNewsArchive
             events={events}
+            signalHistory={signalHistory}
+            onResetSignalHistory={handleResetSignalHistory}
             onSelectForCalibration={handleSelectForCalibration}
             onOpenAIAnalysis={handleOpenAIAnalysis}
           />
