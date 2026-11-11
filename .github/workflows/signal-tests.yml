@@ -1,0 +1,27 @@
+name: Signal Logic Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  signal-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run lint
+
+      - name: Run signal & calendar unit tests
+        run: npm test

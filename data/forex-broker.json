@@ -1,0 +1,109 @@
+{
+  "generatedAt": "2026-11-04T07:52:35Z",
+  "source": "MT5 local bridge",
+  "broker": {
+    "id": "FBS",
+    "name": "FBS",
+    "accountType": "demo"
+  },
+  "quotes": {
+    "EUR/USD": {
+      "bid": 1.12395,
+      "ask": 1.12405,
+      "mid": 1.124,
+      "spread": 0.0001,
+      "spreadPips": 1.0,
+      "digits": 5,
+      "symbol": "EURUSD",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    },
+    "GBP/USD": {
+      "bid": 1.34799,
+      "ask": 1.34811,
+      "mid": 1.34805,
+      "spread": 0.00012,
+      "spreadPips": 1.2,
+      "digits": 5,
+      "symbol": "GBPUSD",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    },
+    "USD/JPY": {
+      "bid": 158.05,
+      "ask": 158.059,
+      "mid": 158.055,
+      "spread": 0.009,
+      "spreadPips": 0.9,
+      "digits": 3,
+      "symbol": "USDJPY",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    },
+    "USD/CHF": {
+      "bid": 0.81598,
+      "ask": 0.81607,
+      "mid": 0.81603,
+      "spread": 9e-05,
+      "spreadPips": 0.9,
+      "digits": 5,
+      "symbol": "USDCHF",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    },
+    "AUD/USD": {
+      "bid": 0.69932,
+      "ask": 0.69943,
+      "mid": 0.69938,
+      "spread": 0.00011,
+      "spreadPips": 1.1,
+      "digits": 5,
+      "symbol": "AUDUSD",
+      "brokerTime": "2026-11-04T09:52:33Z"
+    },
+    "USD/CAD": {
+      "bid": 1.39554,
+      "ask": 1.39566,
+      "mid": 1.3956,
+      "spread": 0.00012,
+      "spreadPips": 1.2,
+      "digits": 5,
+      "symbol": "USDCAD",
+      "brokerTime": "2026-11-04T09:52:33Z"
+    },
+    "NZD/USD": {
+      "bid": 0.56215,
+      "ask": 0.56227,
+      "mid": 0.56221,
+      "spread": 0.00012,
+      "spreadPips": 1.2,
+      "digits": 5,
+      "symbol": "NZDUSD",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    },
+    "GBP/JPY": {
+      "bid": 213.049,
+      "ask": 213.068,
+      "mid": 213.059,
+      "spread": 0.019,
+      "spreadPips": 1.9,
+      "digits": 3,
+      "symbol": "GBPJPY",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    },
+    "EUR/JPY": {
+      "bid": 177.642,
+      "ask": 177.656,
+      "mid": 177.649,
+      "spread": 0.014,
+      "spreadPips": 1.4,
+      "digits": 3,
+      "symbol": "EURJPY",
+      "brokerTime": "2026-11-04T09:52:35Z"
+    }
+  },
+  "providers": {
+    "FBS": {
+      "name": "FBS",
+      "status": "ok",
+      "pairs": 9
+    }
+  },
+  "staleAfterSec": 1800
+}

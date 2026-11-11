@@ -1,0 +1,6 @@
+{
+  "name": "AI Trading Terminal - News & Impact Calibrator",
+  "description": "Institutional-grade AI economic calendar, automated pre-news & post-news algorithmic analyzer, deviation calibrator, and precision trading parameters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
