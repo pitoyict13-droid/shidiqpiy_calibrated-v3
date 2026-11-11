@@ -100,7 +100,7 @@
     </div>
     <div class="crypto-grid" id="cryptoGrid"></div>
   </section>
-  <nav class="toolbar glass"><div class="filters"><button class="chip active" data-filter="all">Full month</button><button class="chip" data-filter="upcoming">Upcoming</button><button class="chip" data-filter="high">High impact</button></div><span class="status" id="status">Loading calendar…</span><button class="refresh" id="refresh">↻ Refresh</button></nav>
+  <nav class="toolbar glass"><div class="filters"><button class="chip active" data-filter="all">Full month</button><button class="chip" data-filter="signals">Post-News BUY/SELL</button><button class="chip" data-filter="upcoming">Upcoming</button><button class="chip" data-filter="high">High impact</button></div><span class="status" id="status">Loading calendar…</span><button class="refresh" id="refresh">↻ Refresh</button></nav>
   <div class="section-head"><div><h3 id="monthTitle">Economic calendar</h3><p>Oldest to newest • times shown in WITA</p></div></div>
   <section id="calendar" class="timeline"></section>
   <div class="footer">Educational scenario analysis only—not financial advice. A scheduled event does not guarantee direction; wait for the actual release and price confirmation.</div>
@@ -109,9 +109,11 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function num(v) {
-    if (v === null || v === undefined || String(v).trim() === '' || v === '-' || v === '—') return null;
-    const raw = String(v).trim().replace(/,/g, '');
-    const m = raw.match(/^([+-]?\d*\.?\d+)\s*([KMB])?%?$/i);
+    if (v === null || v === undefined) return null;
+    const s = String(v).trim();
+    if (s === '' || s === '-' || s === '—') return null;
+    const raw = s.replace(/,/g, '').replace(/^[$€£¥]/, '');
+    const m = raw.match(/^([+-]?\d*\.?\d+)\s*([KMBT])?%?$/i);
     let n, suf = '';
     if (m) { n = Number(m[1]); suf = (m[2] || '').toUpperCase(); }
     else n = Number(raw.replace(/[^0-9.-]/g, ''));
@@ -119,6 +121,7 @@ function num(v) {
     if (suf === 'K') n *= 1e3;
     if (suf === 'M') n *= 1e6;
     if (suf === 'B') n *= 1e9;
+    if (suf === 'T') n *= 1e12;
     return n;
 }
 function countryCode(c) {
@@ -400,24 +403,33 @@ async function loadCrypto() {
         render();
         return true;
     };
+    const binanceEndpoints = [
+        'https://data-api.binance.vision/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]',
+        'https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]'
+    ];
+    for (const url of binanceEndpoints) {
+        try {
+            const r = await fetch(url);
+            if (!r.ok) continue;
+            const j = await r.json();
+            if (Array.isArray(j)) {
+                const btc = j.find(x => x.symbol === 'BTCUSDT');
+                const eth = j.find(x => x.symbol === 'ETHUSDT');
+                if (btc && eth && apply(btc.lastPrice, eth.lastPrice, btc.priceChangePercent, eth.priceChangePercent)) return;
+            }
+        } catch (e) { console.log('Binance 24h crypto API failed', e); }
+    }
     try {
-        const r = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbols=["BTCUSDT","ETHUSDT"]');
-        const j = await r.json();
-        if (Array.isArray(j)) {
-            const btc = j.find(x => x.symbol === 'BTCUSDT');
-            const eth = j.find(x => x.symbol === 'ETHUSDT');
-            if (btc && eth && apply(btc.lastPrice, eth.lastPrice, btc.priceChangePercent, eth.priceChangePercent)) return;
+        const r = await fetch('https://data-api.binance.vision/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]');
+        if (r.ok) {
+            const j = await r.json();
+            if (Array.isArray(j)) {
+                const btc = j.find(x => x.symbol === 'BTCUSDT');
+                const eth = j.find(x => x.symbol === 'ETHUSDT');
+                if (btc && eth && apply(btc.price, eth.price)) return;
+            }
         }
-    } catch (e) { console.log('Binance 24h crypto API failed', e); }
-    try {
-        const r = await fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]');
-        const j = await r.json();
-        if (Array.isArray(j)) {
-            const btc = j.find(x => x.symbol === 'BTCUSDT');
-            const eth = j.find(x => x.symbol === 'ETHUSDT');
-            if (btc && eth && apply(btc.price, eth.price)) return;
-        }
-    } catch (e) { console.log('Binance crypto API failed', e); }
+    } catch (e) { console.log('Binance Vision price API failed', e); }
     try {
         const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true');
         const j = await r.json();
@@ -426,22 +438,22 @@ async function loadCrypto() {
 }
 
 function goldBias(name, surprise, country) {
-    const laborSoft = /unemployment rate|unemployment|initial claims|continuing claims|jobless claims|jobless/.test(name);
-    const usdSoftIfHigh = /cpi|inflation|pce|pmi|ism|retail sales|consumer confidence|fed funds|interest rate|rate decision|jolts|durable goods|nonfarm payroll|non-farm payroll|nfp|payroll|gdp|adp|employment/.test(name);
+    const laborOrSupplyWeakIfHigh = /unemployment rate|unemployment|initial claims|continuing claims|jobless claims|jobless|claimant count|crude oil inventories|crude oil stock|api crude|distillate|gasoline stocks/.test(name);
+    const strongEconomyIfHigh = /cpi|core cpi|inflation|ppi|core ppi|pce|pmi|ism|retail sales|consumer confidence|consumer sentiment|michigan|business confidence|sentix|zew|ifo|fed funds|interest rate|rate decision|bank rate|cash rate|policy rate|jolts|durable goods|factory orders|industrial production|manufacturing production|wholesale inventories|nonfarm payroll|non-farm payroll|non farm payroll|nfp|payroll|adp|employment|average hourly earnings|wage|gdp|building permits|housing starts|existing home sales|new home sales|pending home sales|trade balance|balance of trade|current account/.test(name);
     if (country === 'USD') {
-        if (laborSoft) return surprise > 0;
-        if (usdSoftIfHigh) return surprise < 0;
+        if (laborOrSupplyWeakIfHigh) return surprise > 0;
+        if (strongEconomyIfHigh) return surprise < 0;
         return null;
     }
-    if (laborSoft) return surprise < 0;
-    if (usdSoftIfHigh) return surprise > 0;
+    if (laborOrSupplyWeakIfHigh) return surprise < 0;
+    if (strongEconomyIfHigh) return surprise > 0;
     return null;
 }
 
 function analyze(e) {
     const name = (e.Event || e.Category || '').toLowerCase();
     const country = countryCode(e.Country);
-    const forecast = num(e.Forecast || e.TEForecast);
+    const forecast = num(e.Forecast ?? e.TEForecast);
     const actual = num(e.Actual);
     const impact = +e.Importance || 1;
 
@@ -450,9 +462,9 @@ function analyze(e) {
     }
 
     const surprise = actual - forecast;
-    const threshold = Math.max(Math.abs(forecast) * 0.005, 0.01);
+    const threshold = Math.min(Math.max(Math.abs(forecast) * 0.005, 0.01), 0.5);
     if (Math.abs(surprise) < threshold) {
-        return { dir: 'wait', score: 45, reason: `Actual ${actual} vs Forecast ${forecast}: no meaningful economic surprise.` };
+        return { dir: 'wait', score: 45, reason: `Actual ${e.Actual ?? actual} vs Forecast ${e.Forecast ?? forecast}: hasil inline, belum ada deviasi signifikan.` };
     }
 
     const goldBullish = goldBias(name, surprise, country);
@@ -460,13 +472,28 @@ function analyze(e) {
         return { dir: 'wait', score: 40, reason: `${name} has no predefined XAUUSD economic-impact mapping.` };
     }
 
-    const strength = Math.min(40, Math.round(Math.abs(surprise) / threshold * 10));
-    const score = Math.min(95, Math.max(55, 55 + strength));
-    return { dir: goldBullish ? 'long' : 'short', score, reason: `Actual ${actual} vs Forecast ${forecast}. ${goldBullish ? `Data ${country} weaker for USD / stronger for FX → Gold bullish bias.` : `Data ${country} stronger for USD / weaker for FX → Gold bearish bias.`}` };
+    const strength = Math.min(35, Math.round(Math.abs(surprise) / threshold * 8));
+    const impBoost = impact >= 3 ? 8 : impact >= 2 ? 4 : 0;
+    const score = Math.min(96, Math.max(55, 55 + strength + impBoost));
+    const actStr = e.Actual ?? actual;
+    const fcStr = e.Forecast ?? forecast;
+    const reason = country === 'USD'
+        ? `Actual ${actStr} vs Forecast ${fcStr}. ${goldBullish ? 'Data USD lebih lemah dari ekspektasi → USD melemah, XAU/USD BUY.' : 'Data USD lebih kuat dari ekspektasi → USD menguat, XAU/USD SELL.'}`
+        : `Actual ${actStr} vs Forecast ${fcStr}. ${goldBullish ? `Data ${country} lebih kuat dari ekspektasi → ${country} menguat.` : `Data ${country} lebih lemah dari ekspektasi → ${country} melemah.`}`;
+    return { dir: goldBullish ? 'long' : 'short', score, reason };
 }
 
 function normalize(e) {
-    return { ...e, Date: e.Date || e.date, Event: e.Event || e.event || e.Category || 'Economic release', Country: countryCode(e.Country || e.country), Importance: +e.Importance || +e.importance || 1, Forecast: e.Forecast || e.forecast || e.TEForecast || '', Previous: e.Previous || e.previous || '', Actual: e.Actual || e.actual || '' };
+    return {
+        ...e,
+        Date: e.Date ?? e.date,
+        Event: e.Event ?? e.event ?? e.Category ?? 'Economic release',
+        Country: countryCode(e.Country ?? e.country),
+        Importance: +e.Importance || +e.importance || 1,
+        Forecast: e.Forecast ?? e.forecast ?? e.TEForecast ?? '',
+        Previous: e.Previous ?? e.previous ?? '',
+        Actual: e.Actual ?? e.actual ?? ''
+    };
 }
 
 function pairRateFrom(rates, pair) {
@@ -503,20 +530,32 @@ function tpSl(a, e) {
         </div>`;
     }
 
-    if (isPost && Date.now() > postNewsExpiry(e).getTime()) {
+    const assets = eventAssets(e);
+    const focus = focusPair(e);
+    const isExpiredPost = isPost && Date.now() > postNewsExpiry(e).getTime();
+
+    if (isExpiredPost && !directed) {
         return `<div class="tpsl" style="display:flex; flex-direction:column; gap:10px;">
             <div class="expired-badge">⌛ Sinyal pasca-news kedaluwarsa (lebih dari 6 jam). Tunggu katalis berikutnya.</div>
             <div class="validity">📡 Harga saat ini: ${f(LIVE_PRICE)}</div>
         </div>`;
     }
 
-    const assets = eventAssets(e);
     const goldMom = isPost && !directed && assets.gold ? momentumFor(e, 'gold') : null;
     const bias = directed ? a.dir : (goldMom && goldMom.dir ? goldMom.dir : null);
     const validUntil = fmtDate(new Date(e.Date)) + ' pukul ' + fmtTime(new Date(e.Date));
     const postValidUntil = fmtDate(postNewsExpiry(e)) + ' ' + fmtTime(postNewsExpiry(e));
 
     let html = `<div class="tpsl" style="display:flex; flex-direction:column; gap:10px;">`;
+
+    if (isExpiredPost && directed) {
+        const focusDir = focus.pair.startsWith('USD/') && countryCode(e.Country) !== 'USD'
+            ? (a.dir === 'short' ? 'long' : 'short')
+            : a.dir;
+        html += `<div class="expired-badge">📊 HASIL PASCA-NEWS: ${focus.pair || 'XAU/USD'} <b>${actionOf(focusDir)}</b> (Actual ${esc(e.Actual)} vs Forecast ${esc(e.Forecast)}) • jendela entry aktif 6 jam telah selesai</div>`;
+        html += `</div>`;
+        return html;
+    }
 
     if (isPost) {
         html += directed
@@ -604,9 +643,14 @@ function tpSl(a, e) {
         </div>`;
     }
 
-    if (Object.keys(FOREX_RATES).length > 0) {
-        const forexPairs = ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'];
-        const fxStatus = directed ? `(${actionOf(a.dir)} • USD ${a.dir === 'long' ? 'Melemah' : 'Menguat'})` : isPost ? '(Momentum per pair)' : '(Straddle Level)';
+    if (Object.keys(FOREX_RATES).length > 0 && (!directed || assets.forex.length > 0)) {
+        const forexPairs = directed ? assets.forex : ['EUR/USD', 'GBP/USD', 'USD/JPY', 'USD/CHF', 'AUD/USD', 'USD/CAD'];
+        const ctry = countryCode(e.Country);
+        const fxStatus = directed
+            ? (ctry === 'USD'
+                ? `(${actionOf(a.dir)} • USD ${a.dir === 'long' ? 'Melemah' : 'Menguat'})`
+                : `(${ctry} ${a.dir === 'long' ? 'Menguat' : 'Melemah'})`)
+            : isPost ? '(Momentum per pair)' : '(Straddle Level)';
         html += `<div class="forex-container"><span style="color:#72d4e4; font-weight:bold; width:100%;">Forex Majors ${fxStatus}</span>`;
         forexPairs.forEach(pair => {
             const rate = pairRate(pair);
@@ -618,7 +662,7 @@ function tpSl(a, e) {
             const pipMultiplier = isJpyStyle ? 100 : 10000;
 
             const pairMom = isPost && !directed && assets.forex.includes(pair) ? momentumFor(e, 'forex', pair) : null;
-            const pairBias = directed
+            const pairBias = directed && assets.forex.includes(pair)
                 ? (pair.startsWith('USD/') ? (a.dir === 'short' ? 'long' : 'short') : a.dir)
                 : (pairMom && pairMom.dir ? pairMom.dir : null);
 
@@ -700,12 +744,18 @@ function card(e) {
     const a = analyze(e);
     const phase = newsPhase(e);
     const focus = focusPair(e);
+    const ctry = countryCode(e.Country);
+    const fundamentalDir = a.dir !== 'wait'
+        ? (focus.pair.startsWith('USD/') && ctry !== 'USD' ? (a.dir === 'short' ? 'long' : 'short') : a.dir)
+        : 'wait';
     const momentum = phase === 'post' && a.dir === 'wait' ? momentumFor(e, focus.kind, focus.pair) : null;
-    const signalDir = a.dir !== 'wait' ? a.dir : (momentum && momentum.dir ? momentum.dir : 'wait');
+    const signalDir = fundamentalDir !== 'wait' ? fundamentalDir : (momentum && momentum.dir ? momentum.dir : 'wait');
     const signalLabel = signalDir === 'long' ? 'BUY' : signalDir === 'short' ? 'SELL' : 'WAIT';
-    const signalNote = a.dir === 'wait' && momentum
-        ? `post-news ${momentum.changePct >= 0 ? '+' : ''}${momentum.changePct.toFixed(2)}% (${focus.pair})`
-        : `${a.score}% confidence`;
+    const signalNote = a.dir !== 'wait'
+        ? `${focus.pair || 'XAU/USD'} • ${a.score}% confidence`
+        : (momentum
+            ? `post-news ${momentum.changePct >= 0 ? '+' : ''}${momentum.changePct.toFixed(2)}% (${focus.pair})`
+            : `${a.score}% confidence`);
     const reason = phase === 'post' && a.dir === 'wait'
         ? `${a.reason} Sinyal BUY/SELL pasca-rilis memakai momentum ${focus.pair || 'pair terkait'} terhadap harga pra-rilisnya; bila arah belum jelas, level breakout dua arah ditampilkan.`
         : a.reason;
@@ -730,30 +780,112 @@ function card(e) {
     </article>`;
 }
 
+function formatTvVal(val, unit, scale) {
+    if (val === null || val === undefined || val === '') return '';
+    const n = Number(val);
+    if (!Number.isFinite(n)) return String(val);
+    const s = scale && ['K', 'M', 'B', 'T'].includes(String(scale).toUpperCase()) ? String(scale).toUpperCase() : '';
+    const u = unit === '%' ? '%' : '';
+    return `${n}${s}${u}`;
+}
+
+function mergeCalendarFeeds(repoList, liveList) {
+    const map = new Map();
+    const keyOf = ev => {
+        const t = new Date(ev.Date).getTime();
+        const min = Number.isFinite(t) ? Math.round(t / 60000) : String(ev.Date || '');
+        const title = String(ev.Event || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+        return `${min}|${countryCode(ev.Country)}|${title}`;
+    };
+    const put = (ev, prefer) => {
+        const k = keyOf(ev);
+        const prev = map.get(k);
+        if (!prev) { map.set(k, ev); return; }
+        const prevAct = String(prev.Actual ?? '').trim() !== '';
+        const currAct = String(ev.Actual ?? '').trim() !== '';
+        if (currAct && !prevAct) map.set(k, { ...prev, ...ev });
+        else if (prefer && (currAct || !prevAct)) {
+            map.set(k, {
+                ...prev,
+                ...ev,
+                Actual: currAct ? ev.Actual : prev.Actual,
+                Forecast: String(ev.Forecast ?? '').trim() !== '' ? ev.Forecast : prev.Forecast,
+                Previous: String(ev.Previous ?? '').trim() !== '' ? ev.Previous : prev.Previous,
+            });
+        }
+    };
+    (repoList || []).forEach(e => put(e, false));
+    (liveList || []).forEach(e => put(e, true));
+    return [...map.values()];
+}
+
+async function fetchLiveTradingViewCalendar() {
+    const now = new Date();
+    const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const tenDaysAgo = now.getTime() - 10 * 24 * 60 * 60 * 1000;
+    const from = new Date(Math.min(monthStart, tenDaysAgo)).toISOString();
+    const to = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
+    const url = `https://economic-calendar.tradingview.com/events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&countries=US,EU,GB,JP,AU,NZ,CA`;
+    const keywords = /fed|fomc|interest rate|rate decision|bank rate|cash rate|policy rate|inflation|cpi|ppi|pce|payroll|employment|unemployment|jobless|claimant|adp|jolts|hourly earnings|wage|gdp|pmi|ism|retail sales|consumer confidence|consumer sentiment|michigan|business confidence|sentix|zew|ifo|durable goods|industrial production|manufacturing|factory orders|wholesale|housing|building permits|home sales|trade balance|balance of trade|current account|powell|lagarde|bailey|ueda|bullock|macklem|treasury|oil|crude|energy|gas|opec|eia|api|rig|inventories|distillate|gasoline/i;
+    const allowed = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD'];
+    const exclude = /bond auction|bill auction|note auction|treasury auction|wasde|redbook|mortgage applications|mortgage rate|foreign exchange reserves/i;
+    const r = await fetch(url, { cache: 'no-store' });
+    if (!r.ok) return [];
+    const j = await r.json();
+    const arr = Array.isArray(j?.result) ? j.result : [];
+    return arr
+        .filter(e => {
+            const c = countryCode(e.currency || e.country);
+            const t = String(e.title || '');
+            const imp = e.importance === 1 ? 3 : e.importance === 0 ? 2 : 1;
+            return allowed.includes(c) && !exclude.test(t) && (keywords.test(t) || imp >= 2);
+        })
+        .map(e => ({
+            Date: e.date,
+            Event: e.title,
+            Country: countryCode(e.currency || e.country),
+            Importance: e.importance === 1 ? 3 : e.importance === 0 ? 2 : 1,
+            Forecast: formatTvVal(e.forecast, e.unit, e.scale),
+            Previous: formatTvVal(e.previous, e.unit, e.scale),
+            Actual: formatTvVal(e.actual, e.unit, e.scale),
+        }));
+}
+
 async function load() {
     $('#status').textContent = 'Fetching latest calendar...';
     try {
-        let raw = [];
+        let repoRaw = [];
+        let liveRaw = [];
         try {
             const r = await fetch(`data/calendar.json?v=${Date.now()}`, { cache: 'no-store' });
-            if (r.ok) { const j = await r.json(); raw = Array.isArray(j) ? j : j.events || []; }
+            if (r.ok) { const j = await r.json(); repoRaw = Array.isArray(j) ? j : j.events || []; }
         } catch {}
 
+        try {
+            liveRaw = await fetchLiveTradingViewCalendar();
+        } catch {}
+
+        const baseRepo = liveRaw.length > 0
+            ? repoRaw.filter(e => e.Source !== 'ForexFactory' || /speak|speech|meeting|minutes|press/i.test(e.Event || ''))
+            : repoRaw;
+        let raw = mergeCalendarFeeds(baseRepo.map(normalize), liveRaw.map(normalize));
+
         if (!raw.length) {
-            const urls = ['https://nfs.faireconomy.media/ff_calendar_thisweek.json', 'https://nfs.faireconomy.media/ff_calendar_nextweek.json'];
-            const batches = await Promise.all(urls.map(async u => { const r = await fetch(u, { cache: 'no-store' }); return r.ok ? r.json() : []; }));
+            const r = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', { cache: 'no-store' });
+            const batch = r.ok ? await r.json() : [];
             const rank = { Low: 1, Medium: 2, High: 3 };
-            const keywords = /fed|fomc|interest rate|inflation|cpi|pce|payroll|employment|unemployment|jobless|gdp|pmi|ism|retail sales|consumer confidence|jolts|durable goods|powell|treasury|oil|crude|energy|gas|opec|eia|rig|inventories|distillate|gasoline/i;
+            const keywords = /fed|fomc|interest rate|inflation|cpi|ppi|pce|payroll|employment|unemployment|jobless|gdp|pmi|ism|retail sales|consumer confidence|consumer sentiment|jolts|durable goods|powell|treasury|oil|crude|energy|gas|opec|eia|rig|inventories|distillate|gasoline/i;
             const allowedCountries = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD'];
-            raw = batches.flat().filter(e => allowedCountries.includes(String(e.country || '').toUpperCase()) && keywords.test(e.title || '')).map(e => ({
-                Date: e.date, Event: e.title, Country: e.country, Importance: rank[e.impact] || 1, Forecast: e.forecast || '', Previous: e.previous || '', Actual: e.actual || ''
+            raw = (Array.isArray(batch) ? batch : []).filter(e => allowedCountries.includes(String(e.country || '').toUpperCase()) && keywords.test(e.title || '')).map(e => ({
+                Date: e.date, Event: e.title, Country: e.country, Importance: rank[e.impact] || 1, Forecast: e.forecast ?? '', Previous: e.previous ?? '', Actual: e.actual ?? ''
             }));
         }
 
         events = raw.map(normalize).filter(e => e.Date && !isNaN(new Date(e.Date))).sort((a, b) => new Date(a.Date) - new Date(b.Date));
         if (!events.length) throw Error('No events returned');
 
-        $('#status').textContent = `Live - ${new Intl.DateTimeFormat('en-IN', { timeZone: WITA, dateStyle: 'medium', timeStyle: 'short' }).format(new Date())}`;
+        const sigCount = events.filter(e => analyze(e).dir !== 'wait').length;
+        $('#status').textContent = `Live (${sigCount} BUY/SELL) - ${new Intl.DateTimeFormat('en-IN', { timeZone: WITA, dateStyle: 'medium', timeStyle: 'short' }).format(new Date())}`;
         $('#liveText').textContent = 'LIVE CALENDAR';
     } catch (err) {
         events = [];
@@ -765,11 +897,11 @@ async function load() {
 
 function render() {
     const now = new Date();
-    if (!['upcoming', 'high', 'history'].includes(filter)) filter = 'all';
+    if (!['upcoming', 'high', 'signals', 'history'].includes(filter)) filter = 'all';
     
     events.forEach(rememberPreNewsPrice);
 
-    // Berita medium/high impact tetap tampil 6 jam setelah rilis agar sinyal BUY/SELL pasca-news bisa dieksekusi.
+    // Berita medium/high impact tetap tampil 6 jam setelah rilis jika Actual kosong; berita dengan Actual tetap tampil.
     let list = events.filter(e => {
         const eventTime = new Date(e.Date).getTime();
         const keepMs = (e.Importance >= 2 ? 6 : 2) * 60 * 60 * 1000;
@@ -778,6 +910,12 @@ function render() {
         
         if (isStale && isActualMissing) return false;
 
+        if (filter === 'signals') {
+            const a = analyze(e);
+            const focus = focusPair(e);
+            const mom = newsPhase(e) === 'post' && a.dir === 'wait' ? momentumFor(e, focus.kind, focus.pair) : null;
+            return a.dir !== 'wait' || Boolean(mom && mom.dir);
+        }
         return filter === 'all' || (filter === 'upcoming' && new Date(e.Date) >= now) || (filter === 'high' && e.Importance >= 3);
     });
     

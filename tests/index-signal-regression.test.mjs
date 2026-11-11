@@ -35,6 +35,13 @@ const cases = [
   [{Event:'CPI', Actual:3.2, Forecast:3.0}, 'short'],
   [{Event:'Unknown Indicator', Actual:10, Forecast:9}, 'wait'],
   [{Event:'CPI', Actual:null, Forecast:3.0}, 'wait'],
+  [{Event:'Core Inflation Rate MoM', Actual:'0.3%', Forecast:'0.2%', Country:'USD', Importance:3}, 'short'],
+  [{Event:'Non Farm Payrolls', Actual:'165K', Forecast:'65K', Country:'USD', Importance:3}, 'short'],
+  [{Event:'PPI MoM', Actual:'0.2%', Forecast:'0.4%', Country:'USD', Importance:3}, 'long'],
+  [{Event:'Michigan Consumer Sentiment Prel', Actual:'51', Forecast:'48', Country:'USD', Importance:3}, 'short'],
+  [{Event:'Retail Sales MoM', Actual:'0.2%', Forecast:'0%', Country:'USD', Importance:3}, 'short'],
+  [{Event:'Unemployment Rate', Actual:'6.7%', Forecast:'6.5%', Country:'CAD', Importance:3}, 'short'],
+  [{Event:'Balance of Trade', Actual:'2.826B', Forecast:'0.81B', Country:'AUD', Importance:3}, 'long'],
 ];
 
 for (const [input, expected] of cases) {
@@ -64,6 +71,7 @@ function buildTpSl(livePrice, forexRates, cryptoRates, store, preNews = {}) {
     const WITA = 'Asia/Makassar';
     const POST_NEWS_HOLD_MS = 6 * 60 * 60 * 1000;
     const NEWS_SETTLE_MS = 60 * 1000;
+    const esc = s => String(s ?? '');
     const fmtDate = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, weekday: 'short', day: '2-digit', month: 'short' }).format(d);
     const fmtTime = d => new Intl.DateTimeFormat('en-IN', { timeZone: WITA, hour: '2-digit', minute: '2-digit', hour12: false }).format(d) + ' WITA';
     ${countryFn}
@@ -139,11 +147,21 @@ assert.doesNotMatch(audStraddleHtml, /STRATEGI STRADDLE \(OCO\)/);
 assert.doesNotMatch(audStraddleHtml, /BTC\/USD/);
 assert.doesNotMatch(audStraddleHtml, /ETH\/USD/);
 
-// Directed AUD event must not leak a gold panel either.
+// Directed AUD event must not leak gold, crypto, or unrelated forex pairs.
 const audDirectedHtml = buildTpSl(4000, forexRates, cryptoRates, jsonStore(baseSnapshot))({ dir: 'long', score: 70 }, pastAud);
+assert.match(audDirectedHtml, /AUD\/USD <b>BUY<\/b>/);
 assert.doesNotMatch(audDirectedHtml, /XAU\/USD/);
 assert.doesNotMatch(audDirectedHtml, /BTC\/USD/);
 assert.doesNotMatch(audDirectedHtml, /ETH\/USD/);
+assert.doesNotMatch(audDirectedHtml, /EUR\/USD/);
+assert.doesNotMatch(audDirectedHtml, /USD\/JPY/);
+
+// Directed CAD weakness maps to USD/CAD BUY only.
+const pastCad = { ...pastUsd, Event: 'Unemployment Rate', Country: 'CAD', Actual: '6.7%', Forecast: '6.5%' };
+const cadDirectedHtml = buildTpSl(4000, forexRates, cryptoRates, noStore)({ dir: 'short', score: 85 }, pastCad);
+assert.match(cadDirectedHtml, /USD\/CAD <b>BUY<\/b>/);
+assert.doesNotMatch(cadDirectedHtml, /EUR\/USD/);
+assert.doesNotMatch(cadDirectedHtml, /XAU\/USD/);
 
 // Legacy localStorage snapshot (gold only) is merged with per-pair repo data.
 const localGold = { getItem: () => '3900', setItem: () => {} };
@@ -174,6 +192,10 @@ assert.equal(lowImpactHtml, '');
 const staleHtml = buildTpSl(4000, forexRates, cryptoRates, noStore)({ dir: 'wait', score: 40 }, { ...pastUsd, Date: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString() });
 assert.match(staleHtml, /kedaluwarsa/);
 assert.doesNotMatch(staleHtml, /BUY/);
+
+const staleDirectedHtml = buildTpSl(4000, forexRates, cryptoRates, noStore)({ dir: 'short', score: 85 }, { ...pastUsd, Actual: '0.3%', Forecast: '0.2%', Date: new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString() });
+assert.match(staleDirectedHtml, /HASIL PASCA-NEWS/);
+assert.match(staleDirectedHtml, /SELL/);
 
 console.log('Passed post-news per-pair momentum + TP tests');
 

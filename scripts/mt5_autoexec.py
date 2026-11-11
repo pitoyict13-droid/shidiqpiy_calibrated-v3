@@ -31,6 +31,8 @@ from mt5_bridge import (
     momentum,
     normalize_snapshot,
     parse_dt,
+    parse_metric,
+    resolve_post_news_signal,
     resolve_symbol,
 )
 
@@ -172,7 +174,8 @@ def scan(args, state, live, equity):
             continue
         key = f"{event.get('Date')}|{event.get('Event')}"
         snapshot = normalize_snapshot(snapshots.get(key))
-        if not snapshot:
+        has_actual = parse_metric(event.get("Actual")) is not None and parse_metric(event.get("Forecast")) is not None
+        if not snapshot and not has_actual:
             missing_snap += 1
             continue
 
@@ -183,7 +186,7 @@ def scan(args, state, live, equity):
             prices = live_prices(pair)
             if not prices:
                 continue
-            mom = momentum(kind_for(pair), pair, snapshot, prices["bid"])
+            mom = resolve_post_news_signal(event, pair, snapshot, prices["bid"])
             if not mom:
                 continue
             signal_key = f"{key}|{pair}|{mom['dir']}"

@@ -1,0 +1,3377 @@
+//@version=6
+// Bandz Po3 Profiler. Original implementation: HTF candles (3 lanes, FVG / VI, badges), C1/C2/C3/C4
+// profiling with T-Spot, PSP, SMT on a 15m-1D ladder plus SSMT on 90m / 6H quarters, CISD, status bar,
+// and 4-asset auto correlations (indices, metals, energy, bonds, FX majors/minors, BTC / ETH).
+// + Signal panel, entry alerts (CISD / C3 / C4) and order entries (Entry / SL / TP1 / TP2).
+// v4.7: CHART <-> DASHBOARD SYNC
+//     - new input "Chart: hanya sequence live + order aktif" (poChartLiveOnly, default on).
+//       On: the chart draws ONLY live sequences (T-Spot boxes of a live sequence) and ONLY active orders
+//       (pending / open / runner). Finished sequences and closed orders are hidden, so the chart matches
+//       the signal panel instead of showing stale "SELL C3 / TP1 ✓ / TP2 ✓" or a BUY runner of a dead sequence.
+//     - new poActiveOrder(): returns the newest active order (status 0..2) from ANY sequence.
+//     - signal panel: when the live sequence has no order but an OLD sequence still has an active order,
+//       ACTION shows "HOLD BUY/SELL ... (status) · <live action>" and Order / Entry-SL / TP1-TP2 / Status
+//       show that older order (marked "(seq lama)"), so the panel and the chart line up.
+//     - off = old behaviour (full history on the chart, panel reads only the live sequence).
+// v4.6: ENTRY NOW + ENTRY EXPIRY
+//     - every order carries an expiry (PoTrade.expT) = the EARLIER of: "Pending expires (bars)" and the close of
+//       the phase candle the entry belongs to (C3 entry dies when C3 closes, C4 entry when C4 closes).
+//       A pending order past its expiry is cancelled and can no longer fill.
+//     - signal panel: ACTION row shows "ENTRY NOW" (green / red highlight) with side, limit / market price and the
+//       countdown while an entry is actionable (pending limit, or an entry taken within "ENTRY NOW window" bars)
+//     - new panel row "Entry expires" (valid-until clock + countdown; before an order exists it shows the setup
+//       deadline = end of the live C3 / C4 candle)
+//     - chart: pending ENTRY label shows "exp HH:mm", the pending order lines extend towards the expiry,
+//       alert texts include "valid until HH:mm"
+// v4.5: REVIEW FIXES
+//     - FIX A: C3 / C4 T-Spot signals and orders now require a LIVE sequence (rc.alive). Before, a failed
+//       C3 (closed against the sequence) or a finished C4 could still fire a signal / order hours later
+//       when price touched the old zone. The CISD signal also requires a live sequence.
+//     - FIX A2: order state machine: a pending order whose sequence died / T-Spot died is cancelled
+//       BEFORE it can fill (before, a near-edge limit could fill on the same bar it should be cancelled)
+//     - FIX B: "phantom C2" filter. The expansion candle of a live sequence (its C3 / C4) used to qualify as a
+//       C2 of the OPPOSITE side (it opens inside the old C2 and runs past its extreme). That phantom took over
+//       the header / panel ("C2 MANIP" while C3 was running), could fire a false CISD and could kill a valid
+//       C4. The newer side is now dropped when its C2 candle is the C3 / C4 candle of the still-live older side.
+//       A real reversal appears once the old sequence has died (C3 closed against it).
+//     - FIX C: the right edge of the live C3 / C4 T-Spot box uses the NY-anchored HTF close (poHtfSpan),
+//       not time_close(tf) (exchange session clock)
+//     - minor: SMT 4H lane now uses the same NY-anchored bucket as the HTF lanes (SMT lines on HTF candles
+//       no longer disappear when the anchor differs from the exchange clock); variable "fill" renamed
+//       (it shadowed a built-in name)
+// v4.4: PARAMETER <-> C1-C4 (AMD) LOGIC RECONCILIATION
+//     - "C2 must close inside C1" (poReqC2In) is now honoured by the sequence detector itself,
+//       not only by the T-Spot / order filter; switching it off keeps reclaim-less sequences
+//     - the T-Spot close-through kill (spot3Dead / spot4Dead) only runs on Easy and up, exactly as
+//       the filter tooltip promises; "Open" no longer loses boxes / signals after a close through
+//     - sequences can no longer stay alive forever when the profile lane is unavailable or switched
+//       (their boxes used to stretch to the right edge and the panel kept reading them as live)
+//     - "C3 / C4 on confirmed bar" tooltip corrected: it gates the signal as well as the order
+//     - poTSpotMode "C2 open → wick %" is now phase-anchored: the C4 box is measured from the C3
+//       open into the C3 wick (PoRec gained c3Open / c3Wick) instead of reusing the C2 leg, so the
+//       C4 T-Spot no longer sits on top of the C3 box
+// v4.3: SIGNAL PANEL REWRITE (per live sequence, calibrated with the C1-C4 phases)
+//     - new ACTION row: NO TRADE / WAIT (MANIP, displacement, retrace) / BUY-SELL LIMIT / ACTIVE
+//     - Phase row with direction + countdown; CISD / C3 T-Spot / C4 T-Spot rows read the LIVE sequence only
+//     - Order / Entry-SL / TP1-TP2 / Status belong to the live sequence; if no order, Status says why
+//     - old orders and old signals no longer look like current signals ("Last closed" row, dimmed)
+//     - PoRec got sigC3T / sigC4T (signal time per sequence)
+// v4.2: PHASE CANDLE TIMER
+//     - live phase (C1 ACC / C2 MANIP / C3 DIST / C4 CONT) + countdown to close in the header,
+//       on the live profile candle label and in the source-lane badge
+//     - "Next:" schedule row in the header = when the following phases start
+//     - fixed a compile error (two statements were glued on one line: poFireC4 / poNewCisdTrade)
+// v4 (AMD calibration):
+//     - T-Spot C3 / C4 signal needs displacement first: price must CLOSE out of the zone in the sequence
+//       direction, then retrace back into it (no more instant signal on the first C3 / C4 bar)
+//     - C3 entry only while the sequence is in C3 (no stale C3 entry once C4 started)
+//     - C4 phase only if C3 closed with the sequence (failed distribution stops at C3)
+//     - C2 must sweep C1 by a minimum % of the C1 range (no 1-tick manipulation)
+//     - HTF candles on intraday charts are anchored to a fixed NY hour (default 18:00) so 90m / 6H quarters
+//       and 4H candles are identical on futures, forex and crypto
+//     - TP2 can target the C1 opposite extreme, TP1 default = C1 midpoint (distribution targets)
+//     - PSP ignores doji candles
+// v2: auto-asset library rewritten (crypto spot/perp, forex major + minor/cross, index futures + CFD,
+//     commodities), self/duplicate asset guard, auto opens per asset class, conservative same-bar SL,
+//     CISD signal only on confirmed bar close (no repaint).
+// v3.1: phase names (C1 ACC / C2 MANIP / C3 DIST / C4 CONT) on candles + chart labels, phase tracker in the header,
+//       CISD / C3 / C4 signal markers on the signal bar
+// v3: order-entry calibration
+//     - CISD order now follows the T-Spot strictness filter (Open/Easy/Medium/Hard/Max)
+//     - CISD order can wait for the C2 close (C3 open) so SL / C2 range are final
+//     - C3 / C4 orders only on a confirmed bar close (no intrabar repaint)
+//     - max orders per sequence (default 1) so CISD / C3 / C4 do not stack 3x the same risk
+//     - max risk % of price + min TP1 R filters, spread / slippage ticks added to entry and SL
+//     - pending limits are cancelled when the sequence dies, the T-Spot dies, or price runs through SL
+//     - Midpoint / Far edge limits can only fill from the bar AFTER the signal bar
+//     - stats in the signal panel (closed, SL / BE / TP2, hit rates, net R) + capped candle markers
+// v4.1 fix: countdown badge now uses the same NY-anchored bucket as the HTF candle cutter, so 6H / 12H
+//           close times match the C1 -> C2 -> C3 -> C4 switch (no more stale 00:00 badge).
+indicator("Bandz Po3 Profiler", shorttitle="Bandz Po3", overlay=true, format=format.price,
+     max_bars_back=2500, max_lines_count=500, max_labels_count=500, max_boxes_count=500,
+     dynamic_requests=true)
+
+max_bars_back(time, 5000)
+
+bool bandzModulePo3 = true
+bool quickCmp1 = false
+bool quickCmp2 = false
+bool quickCmp3 = false
+bool quickCmp4 = false
+
+// =============================================================================
+// SETTINGS
+// =============================================================================
+const string BANDZ_QUICK_PO3 = "Quick toggles"
+bool po3ShowCandles = bandzModulePo3 and input.bool(true, "HTF candles", inline="QPO1", group=BANDZ_QUICK_PO3)
+bool po3ShowProfile = bandzModulePo3 and input.bool(true, "Po3 profile", inline="QPO1", group=BANDZ_QUICK_PO3)
+bool po3ShowCisd = bandzModulePo3 and input.bool(true, "CISD", inline="QPO1", group=BANDZ_QUICK_PO3)
+bool po3ShowTSpot = bandzModulePo3 and input.bool(true, "T-Spot", inline="QPOT", group=BANDZ_QUICK_PO3)
+string poSpotStrict = input.string("Medium", "", options = ["Open", "Easy", "Medium", "Hard", "Max"], inline="QPOT", group=BANDZ_QUICK_PO3, tooltip = "Which sequences get a T-Spot. Open: every sequence that reaches C3. Easy: LTF CISD or SMT during C2. Medium: CISD and SMT. Hard: CISD + SMT + PSP on C2. Max: Hard + C2 closes past C1's 50% + C2 sweeps C1 by 10% of its range + not an xC2. Easy and up also remove a box once price closes through its far side. v3: the same filter now also gates the CISD order (see Order entry).")
+bool po3ShowSmt = bandzModulePo3 and input.bool(true, "SMT / SSMT", inline="QPO2", group=BANDZ_QUICK_PO3)
+bool po3ShowPsp = bandzModulePo3 and input.bool(true, "PSP", inline="QPO2", group=BANDZ_QUICK_PO3)
+bool po3ShowSmtLbl = bandzModulePo3 and input.bool(true, "SMT labels", inline="QPO2", group=BANDZ_QUICK_PO3)
+bool po3ShowTable = bandzModulePo3 and input.bool(true, "Header", inline="QPO2", group=BANDZ_QUICK_PO3)
+bool po3ShowStdv = bandzModulePo3 and input.bool(true, "STDV", inline="QPO3", group=BANDZ_QUICK_PO3)
+bool po3ShowImb = bandzModulePo3 and input.bool(true, "FVG / VI", inline="QPO3", group=BANDZ_QUICK_PO3)
+bool po3ShowMarks = bandzModulePo3 and input.bool(true, "Sweeps + midpoints", inline="QPO3", group=BANDZ_QUICK_PO3)
+bool po3ShowLevels = bandzModulePo3 and input.bool(true, "Levels & opens", inline="QPO4", group=BANDZ_QUICK_PO3)
+bool po3ShowVOpen = bandzModulePo3 and input.bool(true, "Vertical opens", inline="QPO4", group=BANDZ_QUICK_PO3)
+bool po3ShowLiq = bandzModulePo3 and input.bool(true, "HTF liquidity", inline="QPO4", group=BANDZ_QUICK_PO3)
+bool po3ShowMtfCisd = bandzModulePo3 and input.bool(true, "3m / 5m CISD", inline="QPO5", group=BANDZ_QUICK_PO3)
+bool po3ShowEFvg = bandzModulePo3 and input.bool(true, "Entry FVGs", inline="QPO5", group=BANDZ_QUICK_PO3)
+// signal panel + entry alerts
+bool poShowSigPanel = bandzModulePo3 and input.bool(true, "Signal panel", inline="QPO6", group=BANDZ_QUICK_PO3)
+bool poAlertCisd    = bandzModulePo3 and input.bool(true, "Alerts CISD", inline="QPO6", group=BANDZ_QUICK_PO3)
+bool poAlertC3      = bandzModulePo3 and input.bool(true, "C3",          inline="QPO6", group=BANDZ_QUICK_PO3)
+bool poAlertC4      = bandzModulePo3 and input.bool(true, "C4",          inline="QPO6", group=BANDZ_QUICK_PO3)
+
+bool poOrdOn = bandzModulePo3 and input.bool(true, "Order entries (Entry / SL / TP)", inline="QPO7", group=BANDZ_QUICK_PO3)
+
+const string PO_G1  = "1 · Setup"
+const string PO_G10 = "2 · Assets"
+const string PO_G6  = "3 · Po3 profile (C1-C4)"
+const string PO_G8  = "4 · CISD + STDV"
+const string PO_G3  = "5 · SMT / SSMT"
+const string PO_GP  = "6 · PSP"
+const string PO_G4  = "7 · HTF candles"
+const string PO_G13 = "8 · Levels & opens"
+const string PO_G9  = "9 · Header & text"
+
+// ── 1 · Setup ────────────────────────────────────────────────────────────────
+bool   poAutoHtf   = input.bool(true, "Auto HTF", inline = "poAuto", group = PO_G1)
+bool   poAutoCount = input.bool(true, "Auto count", inline = "poAuto", tooltip = "Auto HTF picks the three lanes from the chart timeframe and the ladder below. Auto count shows 8 / 6 / 3 candles. Turn them off to use the HTF rows.", group = PO_G1)
+string poPreset    = input.string("6H / 90m", "Ladder", options = ["4H / 1H", "6H / 90m", "7H / 1H"], tooltip = "On a 5m chart: 4H / 1H = 30m, 1H, 4H. 6H / 90m (quarterly theory) = 30m, 90m, 6H. 7H / 1H = 30m, 1H, 7H. Higher chart timeframes shift the ladder up.", group = PO_G1)
+bool   poL1On = input.bool(true, "HTF 1", inline = "poL1", group = PO_G1)
+string poL1Tf = input.timeframe("30", "", inline = "poL1", group = PO_G1)
+int    poL1N  = input.int(8, "", minval = 1, maxval = 20, inline = "poL1", group = PO_G1)
+bool   poL2On = input.bool(true, "HTF 2", inline = "poL2", group = PO_G1)
+string poL2Tf = input.timeframe("90", "", inline = "poL2", group = PO_G1)
+int    poL2N  = input.int(6, "", minval = 1, maxval = 20, inline = "poL2", group = PO_G1)
+bool   poL3On = input.bool(true, "HTF 3", inline = "poL3", group = PO_G1)
+string poL3Tf = input.timeframe("360", "", inline = "poL3", group = PO_G1)
+int    poL3N  = input.int(3, "", minval = 1, maxval = 20, inline = "poL3", group = PO_G1)
+string poSourceSel   = input.string("Auto", "Profile on", options = ["Auto", "HTF 1", "HTF 2", "HTF 3"], tooltip = "The HTF lane that gets C1 / C2 / C3 / C4 (marked with a star). Auto = the first lane with at least 12 chart bars per candle.", group = PO_G1)
+string poProfileBias = input.string("Auto", "Sequence direction", options = ["Auto", "Bullish only", "Bearish only"], tooltip = "Auto plots both directions.", group = PO_G1)
+string poSsmtBias    = input.string("Auto-Filter", "SSMT filter", options = ["Off", "Auto-Filter", "Bullish only", "Bearish only"], tooltip = "Auto-Filter: while a live SSMT exists, live sequences must agree with it.", group = PO_G1)
+int    poAnchorH     = input.int(18, "HTF anchor hour (NY)", minval = 0, maxval = 23, tooltip = "Intraday HTF candles below 1D (30m, 1H, 90m, 4H, 6H ...) are cut from this New York hour, so 90m / 6H quarters and 4H candles are the same on futures, forex and crypto. 18 = 18:00 NY (futures / forex session open, quarterly theory). The countdown badge now follows this same anchor.", group = PO_G1)
+
+// ── 2 · Assets ───────────────────────────────────────────────────────────────
+string poCorrMode = input.string("Auto", "Assets", options = ["Auto", "Manual"], inline = "poCm", group = PO_G10)
+string poDivMode  = input.string("Tetrad", "", options = ["Dyad", "Triad", "Triad (GXT)", "Tetrad"], inline = "poCm", tooltip = "Auto picks peers for the chart symbol (crypto, forex majors + minors, index futures + CFD, metals, energy, bonds). Dyad = 1 asset, Triad = 2, Tetrad = 3. GXT swaps the second asset. Symbols not in the library, or Manual, use the rows below (tick them yourself).", group = PO_G10)
+bool   poM1  = input.bool(false, "1", inline = "poA1", group = PO_G10)
+string poMS1 = input.symbol("CME_MINI:MES1!", "", inline = "poA1", group = PO_G10)
+bool   poMI1 = input.bool(false, "Invert", inline = "poA1", group = PO_G10)
+bool   poM2  = input.bool(false, "2", inline = "poA2", group = PO_G10)
+string poMS2 = input.symbol("CBOT_MINI:MYM1!", "", inline = "poA2", group = PO_G10)
+bool   poMI2 = input.bool(false, "Invert", inline = "poA2", group = PO_G10)
+bool   poM3  = input.bool(false, "3", inline = "poA3", group = PO_G10)
+string poMS3 = input.symbol("CME_MINI:M2K1!", "", inline = "poA3", group = PO_G10)
+bool   poMI3 = input.bool(false, "Invert", inline = "poA3", group = PO_G10)
+bool   poM4  = input.bool(false, "4", inline = "poA4", group = PO_G10)
+string poMS4 = input.symbol("TVC:DXY", "", inline = "poA4", group = PO_G10)
+bool   poMI4 = input.bool(true, "Invert", inline = "poA4", tooltip = "Asset 4 is always manual and is added on top of Auto (ignored if it duplicates an auto asset or the chart symbol).", group = PO_G10)
+
+// ── 3 · Po3 profile ──────────────────────────────────────────────────────────
+bool   poChartLabels = input.bool(true, "C1 / C2 labels on chart", group = PO_G6)
+string poLabelMode   = input.string("C1/C2/C3", "Labels on HTF candles", options = ["Off", "C1/C2/C3", "C1/C2/C3/C4"], group = PO_G6)
+bool   poSweepLine   = input.bool(true, "C1 sweep line", inline = "poSw", group = PO_G6)
+color  poSweepCol    = input.color(color.rgb(90, 90, 90), "", inline = "poSw", group = PO_G6)
+int    poSweepW      = input.int(1, "", options = [1, 2, 3, 4], inline = "poSw", group = PO_G6)
+bool   poTSpot       = po3ShowTSpot
+color  poTSpotBull   = input.color(color.new(color.rgb(76, 175, 80), 87), "T-Spot", inline = "poTs", group = PO_G6)
+color  poTSpotBear   = input.color(color.new(color.rgb(255, 152, 0), 87), "", inline = "poTs", group = PO_G6)
+bool   poTSpotDir    = input.bool(true, "By direction", inline = "poTs", tooltip = "On: blue bullish / red bearish boxes. Off: the neutral fill and border on the next row.", group = PO_G6)
+color  poTSpotFill   = input.color(color.new(color.rgb(120, 120, 115), 76), "Neutral", inline = "poTn", group = PO_G6)
+color  poTSpotBorder = input.color(color.rgb(95, 95, 92), "", inline = "poTn", group = PO_G6)
+bool   poEFvgDisp    = input.bool(true, "Displacement FVG", inline = "poEf1", tooltip = "Displacement FVG = the first chart FVG in the sequence direction in the move from the C2 sweep extreme to the CISD. FVG in T-Spot = a chart FVG in the sequence direction that forms inside the active C3 / C4 T-Spot (the sequence must pass the T-Spot filter).", group = PO_G6)
+bool   poEFvgSpot    = input.bool(true, "FVG in T-Spot", inline = "poEf1", group = PO_G6)
+color  poEFvgBull    = input.color(color.new(color.rgb(33, 150, 243), 80), "Entry FVG", inline = "poEf2", group = PO_G6)
+color  poEFvgBear    = input.color(color.new(color.rgb(224, 82, 82), 80), "", inline = "poEf2", group = PO_G6)
+string poEFvgLife    = input.timeframe("30", "Gone after next", inline = "poEf2", tooltip = "Each entry FVG extends to the close of the NEXT candle of this timeframe, then is deleted.", group = PO_G6)
+string poTSpotMode   = input.string("Close → range %", "T-Spot anchor", options = ["Close → range %", "C2 open → wick %"], tooltip = "Close → range %: C3 box = C2 close back into the C2 range by the C3 depth, C4 box = C3 close back into the C3 range by the C4 depth. C2 open → wick %: C3 box = C2 open into the C2 sweep wick by the C3 depth, C4 box = C3 open into the C3 wick by the C4 depth (v4.4: C4 no longer reuses the C2 leg, so the two boxes no longer overlap).", group = PO_G6)
+float  poT50         = input.float(50.0, "Depth C3 %", minval = 5.0, maxval = 100.0, inline = "poTd", group = PO_G6)
+float  poT25         = input.float(25.0, "C4 %", minval = 5.0, maxval = 100.0, inline = "poTd", group = PO_G6)
+bool   poLeaveC3     = input.bool(true, "Keep C3 box during C4", group = PO_G6)
+string poSeqGate     = input.string("Wait for xC2", "xC2 (both sides swept)", options = ["Wait for xC2", "Immediate"], tooltip = "Wait = plot only the side that survives once price trades through one C2 extreme. Immediate = plot both.", group = PO_G6)
+bool   poPspOnly     = input.bool(false, "Only PSP-confirmed sequences", group = PO_G6)
+bool   poReqC2In     = input.bool(true, "C2 must close inside C1", inline = "poRq", tooltip = "T-Spot, orders (C3 / C4 and the CISD order filter) AND the sequence itself only count when the C2 close is back inside the C1 range (a real sweep and reclaim). Applies once the sequence has reached C3; while C2 is still live the close is unknown, so the sequence is tracked anyway. Off = sequences without a reclaim are kept too (weaker signals).", group = PO_G6)
+bool   poReqC3Dir    = input.bool(true, "C4 needs C3 with the sequence", inline = "poRq", tooltip = "v4: C3 must close beyond the C2 close in the sequence direction (buy: C3 close above C2 close, sell: below). If it does not, the sequence does not advance to C4 (failed distribution) and the C4 T-Spot never counts. Not applied to the C3 entry itself, because that entry is a pullback inside C3.", group = PO_G6)
+float  poC2MinSweep  = input.float(5.0, "Min C2 sweep % of C1 range", minval = 0.0, maxval = 100.0, step = 1.0, tooltip = "Manipulation quality: C2 must run beyond the C1 high / low by at least this share of the C1 range. 0 = any sweep (even 1 tick).", group = PO_G6)
+bool   poReqLeave    = input.bool(true, "T-Spot needs displacement first", tooltip = "The C3 / C4 T-Spot signal (and order) only fires after price has CLOSED out of the zone in the sequence direction (distribution / expansion) and then retraces back into it. Off = the old behaviour, which could fire on the very first C3 / C4 bar.", group = PO_G6)
+bool   poPhaseNames  = input.bool(true, "Phase names (ACC / MANIP / DIST / CONT)", tooltip = "C1 = Accumulation (reference range), C2 = Manipulation (sweep of the C1 high / low), C3 = Distribution (expansion, first T-Spot), C4 = Continuation (second T-Spot). Added to the C1-C4 labels on the chart and on the HTF candles.", group = PO_G6)
+bool   poPhaseTimer  = input.bool(true, "Phase candle timer (C1-C4)", tooltip = "Shows the phase of the live profile candle (C1 / C2 / C3 / C4), the countdown to its close and the start schedule of the following phases. Shown in the header, on the live candle label and in the profile-lane badge. Uses the same NY-anchored bucket as the HTF candle cutter.", group = PO_G6)
+bool   poSigMarks    = input.bool(true, "Signal markers on bars (CISD / C3 / C4)", tooltip = "Triangle + text on the bar where the CISD, C3 T-Spot or C4 T-Spot signal fires (also CISD ORDER when it is placed after the C2 close).", group = PO_G6)
+
+// ── 4 · CISD + STDV ──────────────────────────────────────────────────────────
+string poCisdScope     = input.string("Sequence only", "CISD", options = ["Sequence only", "All"], inline = "poCs", tooltip = "Sequence only = the first CISD in the sequence direction after the C2 sweep. All = every CISD.", group = PO_G8)
+color  poCisdBull      = input.color(color.rgb(33, 150, 243), "", inline = "poCs", group = PO_G8)
+color  poCisdBear      = input.color(color.rgb(224, 82, 82), "", inline = "poCs", group = PO_G8)
+string poSeqCisdTf     = input.string("Chart", "Sequence CISD from", options = ["Chart", "3m", "5m"], tooltip = "Which CISD counts for the sequence (the LTF CISD requirement, the T-Spot filter and the STDV anchor). 3m / 5m only work on charts below that timeframe; otherwise the chart CISD is used.", group = PO_G8)
+string poCisdSens      = input.string("Standard", "Sensitivity", options = ["Standard", "Sensitive"], inline = "poCr", tooltip = "Standard: level = open where the opposing stretch began. Sensitive: open of its last candle (triggers sooner).", group = PO_G8)
+int    poCisdMinRun    = input.int(2, "Min run", minval = 1, maxval = 10, inline = "poCr", group = PO_G8)
+bool   poCisdFilterInv = input.bool(true, "Remove once closed back through", inline = "poCi", group = PO_G8)
+int    poCisdMax       = input.int(15, "Max", minval = 1, maxval = 40, inline = "poCi", group = PO_G8)
+bool   poStdvOn        = po3ShowStdv
+color  poStdvBull      = input.color(color.rgb(74, 74, 74), "STDV", inline = "poSd", tooltip = "level = CISD + d x (CISD - C2 extreme), the Bandz CISD + STDV leg math. Drawn on the newest sequence with a CISD, from the CISD to the current bar; dims once the CISD closes back through or the sequence dies.", group = PO_G8)
+color  poStdvBear      = input.color(color.rgb(74, 74, 74), "", inline = "poSd", group = PO_G8)
+bool   poStdvPrice     = input.bool(true, "Prices", inline = "poSd", group = PO_G8)
+string poStdvLevels    = input.string("-2, -2.5, -4, -4.5", "Levels", inline = "poSl", group = PO_G8)
+bool   poStdvFill      = input.bool(true, "Fill pairs", inline = "poSl", tooltip = "Shades level 1 to 2 and level 3 to 4 (-2 to -2.5 and -4 to -4.5 by default).", group = PO_G8)
+bool   poStdvLeg       = input.bool(true, "0-1 leg", inline = "poSl", group = PO_G8)
+
+// ── 5 · SMT / SSMT ───────────────────────────────────────────────────────────
+bool   poSmtChart    = input.bool(true, "On chart", inline = "poSm1", group = PO_G3)
+bool   poSmtHtf      = input.bool(true, "On HTF candles", inline = "poSm1", group = PO_G3)
+bool   poSmtDots     = input.bool(true, "Reference dot", inline = "poSm1", group = PO_G3)
+color  poSmtDotCol   = input.color(color.new(color.gray, 80), "", inline = "poSm1", group = PO_G3)
+color  poSmtBullCol  = input.color(color.rgb(99, 154, 242), "Lines", inline = "poSm2", tooltip = "Bullish / bearish color for every SMT and SSMT (SSMT is dashed on the chart).", group = PO_G3)
+color  poSmtBearCol  = input.color(color.rgb(228, 68, 72), "", inline = "poSm2", group = PO_G3)
+int    poSmtOpacity  = input.int(70, "Opacity %", minval = 0, maxval = 100, inline = "poSm2", group = PO_G3)
+string poSmtLabels   = input.string("HTF + Assets", "Labels", options = ["Off", "HTF", "Assets", "HTF + Assets"], inline = "poSm3", group = PO_G3)
+color  poSmtLabelCol = input.color(color.rgb(74, 74, 74), "", inline = "poSm3", group = PO_G3)
+bool   poSt1On  = input.bool(true, "15m", inline = "poT1", group = PO_G3)
+bool   poSt2On  = input.bool(true, "30m", inline = "poT1", group = PO_G3)
+bool   poSt3On  = input.bool(false, "1H", inline = "poT1", group = PO_G3)
+bool   poSt4On  = input.bool(true, "90m", inline = "poT1", group = PO_G3)
+bool   poSt5On  = input.bool(false, "4H", inline = "poT2", group = PO_G3)
+bool   poSt6On  = input.bool(true, "6H", inline = "poT2", group = PO_G3)
+bool   poSt7On  = input.bool(false, "1D", inline = "poT2", group = PO_G3)
+bool   poSsmtOn      = input.bool(true, "SSMT (90m / 6H quarters)", inline = "poSs", tooltip = "The live 90m or 6H quarter against the quarter right before it. Needs 90m or 6H ticked above.", group = PO_G3)
+bool   poSmtAll      = input.bool(false, "Every asset must diverge", group = PO_G3)
+int    poSmtLookback = input.int(3, "Lookback", minval = 1, maxval = 20, inline = "poSk", tooltip = "Lookback = how many candles back a reference may be. Kept = marks per timeframe.", group = PO_G3)
+int    poSmtCycles   = input.int(3, "Kept", minval = 1, maxval = 10, inline = "poSk", group = PO_G3)
+float  poSmtMinRatio = input.float(6.0, "TF ratio min", minval = 2.0, maxval = 60.0, inline = "poSr", tooltip = "SMT timeframe / chart timeframe range. 6 to 100 = 30m+ on a 5m chart, 15m to 90m on a 1m chart.", group = PO_G3)
+float  poSmtMaxRatio = input.float(100.0, "max", minval = 6.0, maxval = 2000.0, inline = "poSr", group = PO_G3)
+
+// ── 6 · PSP ──────────────────────────────────────────────────────────────────
+bool   poPspOn     = input.bool(true, "HTF PSP candles", inline = "poPsp", group = PO_GP)
+color  poPspBull   = input.color(color.new(color.rgb(33, 150, 243), 78), "", inline = "poPsp", group = PO_GP)
+color  poPspBear   = input.color(color.new(color.rgb(224, 82, 82), 78), "", inline = "poPsp", group = PO_GP)
+bool   poPspAll    = input.bool(false, "Every asset must disagree", group = PO_GP)
+
+// ── 7 · HTF candles ──────────────────────────────────────────────────────────
+color  poBullBody   = input.color(color.white, "Body", inline = "poBd", group = PO_G4)
+color  poBearBody   = input.color(color.black, "", inline = "poBd", group = PO_G4)
+color  poBullBorder = input.color(color.black, "Border", inline = "poBd", group = PO_G4)
+color  poBearBorder = input.color(color.black, "", inline = "poBd", group = PO_G4)
+color  poWick       = input.color(color.black, "Wick", inline = "poBd", group = PO_G4)
+bool   poFvgOn      = po3ShowImb and input.bool(true, "FVG", inline = "poIm", group = PO_G4)
+color  poFvgCol     = input.color(color.new(color.rgb(150, 150, 145), 93), "", inline = "poIm", group = PO_G4)
+bool   poViOn       = po3ShowImb and input.bool(true, "VI", inline = "poIm", group = PO_G4)
+color  poViCol      = input.color(color.new(color.rgb(41, 160, 255), 89), "", inline = "poIm", group = PO_G4)
+bool   poMidpoint   = po3ShowMarks and input.bool(true, "Midpoint", inline = "poIm", group = PO_G4)
+color  poMidCol     = input.color(color.rgb(46, 46, 46), "", inline = "poIm", group = PO_G4)
+string poBadge      = input.string("Full", "Badge", options = ["Off", "TF only", "Full", "% left"], inline = "poBg", tooltip = "Full = timeframe + countdown, e.g. 90m (08:12). % left = how much of the candle is left, e.g. 4H (88%), red in the last 10%.", group = PO_G4)
+string poBadgePos   = input.string("Both", "", options = ["Top", "Bottom", "Both"], inline = "poBg", group = PO_G4)
+bool   poHtfSweep   = po3ShowMarks and input.bool(true, "Sweep lines", inline = "poHs", tooltip = "Line from the prior candle's high / low to the candle that swept it.", group = PO_G4)
+color  poHtfSweepCol = input.color(color.rgb(90, 90, 90), "", inline = "poHs", group = PO_G4)
+bool   poHlTimes    = input.bool(true, "High / low times", inline = "poHl", tooltip = "Open time of the candle that made each lane's high and low.", group = PO_G4)
+bool   poDivider    = input.bool(false, "Divider", inline = "poHl", group = PO_G4)
+color  poBadgeCol   = input.color(color.rgb(110, 108, 105), "Text", inline = "poPc", group = PO_G4)
+color  poAccent     = input.color(color.rgb(33, 150, 243), "Accent", inline = "poPc", group = PO_G4)
+int    poRightOffset = input.int(10, "Offset", minval = 1, maxval = 100, inline = "poLy", group = PO_G4)
+int    poLaneGap     = input.int(10, "Gap", minval = 1, maxval = 50, inline = "poLy", group = PO_G4)
+int    poCandleW     = input.int(1, "Width", minval = 1, maxval = 5, inline = "poLy", group = PO_G4)
+
+// ── 8 · Levels & opens ───────────────────────────────────────────────────────
+bool   poKeyPd      = input.bool(true, "PDH / PDL", inline = "poK1", group = PO_G13)
+color  poKeyPdCol   = input.color(color.rgb(40, 40, 40), "", inline = "poK1", group = PO_G13)
+bool   poKeyEq      = input.bool(true, "PD-EQ", inline = "poK1", group = PO_G13)
+color  poKeyEqCol   = input.color(color.rgb(74, 74, 74), "", inline = "poK1", group = PO_G13)
+bool   poKeyDay     = input.bool(true, "Daily open", inline = "poK2", group = PO_G13)
+bool   poKeyWk      = input.bool(true, "Weekly open", inline = "poK2", group = PO_G13)
+color  poKeyOpenCol = input.color(color.rgb(74, 74, 74), "", inline = "poK2", group = PO_G13)
+bool   poCo1On  = input.bool(true, "", inline = "poO1", group = PO_G13)
+string poCo1    = input.session("0000-0001", "Open", inline = "poO1", group = PO_G13)
+color  poCo1Col = input.color(color.rgb(0, 0, 0), "", inline = "poO1", group = PO_G13)
+bool   poCo2On  = input.bool(false, "", inline = "poO2", group = PO_G13)
+string poCo2    = input.session("0830-0831", "Open", inline = "poO2", group = PO_G13)
+color  poCo2Col = input.color(color.rgb(90, 90, 90), "", inline = "poO2", group = PO_G13)
+bool   poCo3On  = input.bool(true, "", inline = "poO3", group = PO_G13)
+string poCo3    = input.session("0930-0931", "Open", inline = "poO3", group = PO_G13)
+color  poCo3Col = input.color(color.rgb(90, 90, 90), "", inline = "poO3", group = PO_G13)
+bool   poCo4On  = input.bool(true, "", inline = "poO4", group = PO_G13)
+string poCo4    = input.session("1000-1001", "Open", inline = "poO4", group = PO_G13)
+color  poCo4Col = input.color(color.rgb(0, 0, 0), "", inline = "poO4", group = PO_G13)
+bool   poCo5On  = input.bool(true, "", inline = "poO5", group = PO_G13)
+string poCo5    = input.session("1330-1331", "Open", inline = "poO5", tooltip = "Five custom opening prices. Only the start time is used (New York time by default). Shown on 1H charts and below.", group = PO_G13)
+color  poCo5Col = input.color(color.rgb(0, 0, 0), "", inline = "poO5", group = PO_G13)
+string poCoStyle = input.string("Dotted", "Open line style", options = ["Dotted", "Dashed", "Solid"], group = PO_G13)
+bool   poCoAuto = input.bool(true, "Auto opens per asset", group = PO_G13, tooltip = "Open times by asset class (New York time). Crypto: 00:00, 03:00, 09:30, 10:00, 20:00 (= 00:00 UTC in summer time only). Forex and commodities: 00:00, 03:00, 08:00, 08:30, 09:30. Index / bonds / other symbols use the five Open rows above.")
+color  poLiqCol     = input.color(color.rgb(87, 87, 87), "HTF liquidity", inline = "poLq", tooltip = "Swing highs / lows of each HTF lane, labelled with the timeframe; a line stops where it gets swept. Number = highs and lows kept per HTF.", group = PO_G13)
+int    poLiqKeep    = input.int(2, "", minval = 1, maxval = 6, inline = "poLq", group = PO_G13)
+bool   poVOpen      = po3ShowVOpen
+color  poVOpenCol   = input.color(color.new(color.rgb(120, 120, 115), 55), "Vertical opens", inline = "poVo", group = PO_G13)
+string poVOpenTfIn  = input.timeframe("30", "", inline = "poVo", group = PO_G13)
+int    poVOpenKeep  = input.int(8, "", minval = 1, maxval = 15, inline = "poVo", tooltip = "Timeframe of the vertical open lines and how many to keep. Chart (empty) or a timeframe at or below the chart follows the profile candle instead.", group = PO_G13)
+bool   poVOpenLabel = input.bool(true, "Time labels", inline = "poVl", group = PO_G13)
+bool   poHOpen      = input.bool(true, "Profile candle open", inline = "poVl", group = PO_G13)
+color  poHOpenCol   = input.color(color.new(color.rgb(90, 90, 90), 25), "", inline = "poVl", group = PO_G13)
+bool   poLiqOn      = po3ShowLiq
+
+// ── 9 · Header & text ────────────────────────────────────────────────────────
+color  poStatusTxt = input.color(color.rgb(120, 120, 120), "Header", inline = "poTc", group = PO_G9)
+color  poTblBull   = input.color(color.rgb(110, 180, 90), "", inline = "poTc", group = PO_G9)
+color  poTblBear   = input.color(color.rgb(224, 82, 82), "", inline = "poTc", group = PO_G9)
+color  poTblAcc    = input.color(color.rgb(33, 150, 243), "", inline = "poTc", group = PO_G9)
+bool   poChecklist = input.bool(false, "Checklist on the right", tooltip = "Bias / Model / Requirements / SMT / SSMT / PSP / Sequence list on the right edge.", group = PO_G9)
+string poCandleTxt = input.string("Normal", "Text: HTF", options = ["Tiny", "Small", "Normal", "Large"], inline = "poTx", group = PO_G9)
+string poChartTxt  = input.string("Normal", "Chart", options = ["Tiny", "Small", "Normal", "Large"], inline = "poTx", group = PO_G9)
+string poTblTxt    = input.string("Normal", "Header", options = ["Tiny", "Small", "Normal", "Large"], inline = "poTx", group = PO_G9)
+string poTz        = input.string("America/New_York", "Timezone", tooltip = "Used for every HH:mm label, the custom opens and the HTF anchor hour. CME exchange time is Chicago.", group = PO_G9)
+
+// ── 10 · Order entry (TP / SL) ───────────────────────────────────────────────
+const string PO_G11 = "10 · Order entry (TP / SL)"
+bool   poOrdCisd      = input.bool(true, "Entry on CISD", inline = "poOr1", tooltip = "CISD entry = market order at the close of the bar where the sequence CISD confirms (or, with 'waits for C2 close', at the close of the first bar after C3 opens).", group = PO_G11)
+bool   poOrdC3        = input.bool(true, "C3", inline = "poOr1", group = PO_G11)
+bool   poOrdC4        = input.bool(true, "C4", inline = "poOr1", group = PO_G11)
+string poOrdEntryMode = input.string("Near edge", "T-Spot entry price", options = ["Near edge", "Midpoint", "Far edge"], tooltip = "Limit price inside the C3 / C4 T-Spot box. Near edge = the edge price reaches first (fills on the touch that fires the signal). Midpoint / Far edge = deeper limit, shown as pending until filled; it can only fill from the bar AFTER the signal bar.", group = PO_G11)
+float  poOrdSlBuf     = input.float(10.0, "SL buffer % of C2 range", minval = 0.0, maxval = 200.0, step = 1.0, tooltip = "SL = C2 sweep extreme (the wick) plus this share of the C2 range (plus the spread / slip ticks below). Sell: above the C2 high. Buy: below the C2 low.", group = PO_G11)
+string poOrdTp1Mode   = input.string("C1 midpoint", "TP1 target", options = ["RR", "C1 midpoint", "C1 opposite extreme"], inline = "poOr2", tooltip = "RR = risk multiple. C1 midpoint (default, the AMD equilibrium) / C1 opposite extreme = the C1 candle level; if that level is too close (under 0.5R) it falls back to RR.", group = PO_G11)
+float  poOrdTp1Rr     = input.float(2.0, "RR", minval = 0.5, maxval = 20.0, step = 0.5, inline = "poOr2", group = PO_G11)
+string poOrdTp2Mode   = input.string("C1 opposite extreme", "TP2 target", options = ["RR", "C1 opposite extreme"], inline = "poOr2b", tooltip = "C1 opposite extreme = the far side of C1 (full distribution). Used only when it lies beyond TP1; otherwise the RR value below is used.", group = PO_G11)
+float  poOrdTp2Rr     = input.float(4.0, "TP2 RR", minval = 1.0, maxval = 40.0, step = 0.5, inline = "poOr3", tooltip = "After TP1 is reached the stop moves to entry (break-even) and the order runs to TP2.", group = PO_G11)
+int    poOrdKeep      = input.int(4, "Orders shown", minval = 1, maxval = 10, inline = "poOr3", group = PO_G11)
+int    poOrdExpire    = input.int(48, "Pending expires (bars)", minval = 1, maxval = 500, inline = "poOr4", group = PO_G11)
+int    poOrdExtend    = input.int(8, "Extend (bars)", minval = 1, maxval = 100, inline = "poOr4", group = PO_G11)
+bool   poOrdGate      = input.bool(true, "CISD order follows T-Spot filter", inline = "poOr7", tooltip = "The CISD signal / alert still fires on every visible sequence, but the CISD ORDER is only placed when the sequence also passes the T-Spot strictness filter (Open / Easy / Medium / Hard / Max), the same filter C3 / C4 already use.", group = PO_G11)
+bool   poOrdCisdWait  = input.bool(true, "CISD order waits for C2 close", inline = "poOr7", tooltip = "On: the CISD order is placed at the first bar after C3 opens, so the C2 wick, C2 range and C2 close are final. Off: market order at the CISD bar while C2 can still extend its wick (the SL may then be too tight).", group = PO_G11)
+int    poOrdLate      = input.int(6, "CISD order window (bars)", minval = 1, maxval = 50, inline = "poOr8", tooltip = "How many chart bars after C3 opens (or after the CISD when not waiting) the CISD order may still be placed. Also requires the CISD not to be closed back through.", group = PO_G11)
+bool   poOrdC34Conf   = input.bool(true, "C3 / C4 on confirmed bar", inline = "poOr8", tooltip = "On: a C3 / C4 T-Spot signal AND its order are only created when the touching bar has closed (no intrabar repaint, same as the CISD signal). Off: the touch tick fires signal and order immediately.", group = PO_G11)
+int    poOrdMaxPer    = input.int(1, "Max orders per sequence", minval = 1, maxval = 3, inline = "poOr9", tooltip = "CISD, C3 and C4 share the same SL (C2 wick). With 1, only the first order of a sequence is placed; with 3 you stack 3x the same risk.", group = PO_G11)
+float  poOrdMaxRiskPct = input.float(5.0, "Max risk % of price (0 = off)", minval = 0.0, maxval = 50.0, step = 0.5, inline = "poOr9", tooltip = "Skip the order if |entry - SL| is larger than this share of the entry price (a huge C2 on a 6H lane).", group = PO_G11)
+float  poOrdMinRr     = input.float(1.0, "Min TP1 R", minval = 0.0, maxval = 10.0, step = 0.25, inline = "poOr10", tooltip = "Skip the order if TP1 is closer than this many R (the C1 targets can fall back as low as 0.5R).", group = PO_G11)
+int    poOrdSlip      = input.int(2, "Spread / slip (ticks)", minval = 0, maxval = 500, inline = "poOr10", tooltip = "Added against you: CISD market entry is filled this many ticks worse, and the SL goes this many ticks further.", group = PO_G11)
+float  poOrdPartial   = input.float(50.0, "Close % at TP1 (stats)", minval = 0.0, maxval = 100.0, step = 5.0, inline = "poOr11", tooltip = "Used only for the Net R in the panel: this share of the position is closed at TP1, the rest runs to TP2 with the stop at break-even.", group = PO_G11)
+int    poOrdMarks     = input.int(12, "Candle markers kept", minval = 1, maxval = 50, inline = "poOr11", tooltip = "Newest orders that get BUY / SELL / TP / SL markers on the candles (label limit).", group = PO_G11)
+bool   poOrdHideClosed = input.bool(false, "Hide closed orders", group = PO_G11)
+bool   poChartLiveOnly = input.bool(true, "Chart: hanya sequence live + order aktif", group = PO_G11, tooltip = "On: chart hanya menggambar box T-Spot sequence yang masih hidup, serta order yang masih aktif (pending / open / runner). Order & marker lama yang sudah selesai disembunyikan, jadi chart sama dengan dashboard.")
+int    poNowBars      = input.int(3, "ENTRY NOW window (bars)", minval = 1, maxval = 20, tooltip = "How many chart bars after a market / near-edge entry fills the panel still says ENTRY NOW. A pending limit says ENTRY NOW until it fills or expires. Expiry = earlier of 'Pending expires (bars)' and the close of the C3 / C4 candle.", group = PO_G11)
+color  poOrdTpCol     = input.color(color.rgb(76, 175, 80), "TP", inline = "poOr5", group = PO_G11)
+color  poOrdSlCol     = input.color(color.rgb(224, 82, 82), "SL", inline = "poOr5", group = PO_G11)
+color  poOrdEntryCol  = input.color(color.rgb(33, 150, 243), "Entry", inline = "poOr5", group = PO_G11)
+color  poOrdBuyCol    = input.color(color.rgb(8, 153, 129), "BUY marker", inline = "poOr6", group = PO_G11)
+color  poOrdSellCol   = input.color(color.rgb(242, 54, 69), "SELL marker", inline = "poOr6", group = PO_G11)
+
+bool poCalc = bandzModulePo3
+
+// ── Helpers shared by the asset layer ────────────────────────────────────────
+poShort(string s) =>
+    array<string> parts = str.split(s, ":")
+    parts.get(parts.size() - 1)
+
+poTickerOf(string sym) =>
+    ticker.modify(ticker.inherit(syminfo.tickerid, sym), backadjustment = backadjustment.on)
+
+poRequestCmp(string tkr) =>
+    request.security(tkr, timeframe.period, [time, time_close, open, high, low, close], gaps = barmerge.gaps_on, lookahead = barmerge.lookahead_off, ignore_invalid_symbol = true)
+
+// ── Auto correlation library v2 ──────────────────────────────────────────────
+poHasAny(string s, array<string> keys) =>
+    bool hit = false
+    for k in keys
+        if str.contains(s, k)
+            hit := true
+    hit
+
+// Forex pair naming order: EUR > GBP > AUD > NZD > USD > CAD > CHF > JPY
+poFxRank(string c) =>
+    array<string> order = array.from("EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "JPY")
+    order.indexof(c)
+
+// Pair "c1 vs c2" that RISES when c1 strengthens against c2.
+// Returns [symbol, invert]; invert = true when the market pair is the opposite quote.
+poFxPair(string c1, string c2) =>
+    bool direct = poFxRank(c1) < poFxRank(c2)
+    string nm = direct ? c1 + c2 : c2 + c1
+    [syminfo.prefix + ":" + nm, not direct]
+
+// Returns [a, b, c, invA, invB, invC, class]. Class: crypto / fx / com / idx / bond
+poAutoSet() =>
+    string r   = str.upper(syminfo.root)
+    string t   = str.upper(syminfo.ticker)
+    string ty  = syminfo.type
+    string bc  = na(syminfo.basecurrency) ? "" : syminfo.basecurrency
+    string qc  = na(syminfo.currency) ? "" : syminfo.currency
+    bool   gxt  = poDivMode == "Triad (GXT)"
+    bool   perp = str.endswith(t, ".P")
+    bool   cash = ty != "stock" and ty != "fund" and ty != "dr"
+
+    bool isCrypto = (ty == "crypto" or perp) and bc != ""
+    bool isFx     = ty == "forex" and poFxRank(bc) >= 0 and poFxRank(qc) >= 0
+
+    // index (futures micro/mini + CFD / cash)
+    bool fNQ   = r == "NQ" or r == "MNQ" or (cash and poHasAny(t, array.from("NAS100", "US100", "USTEC", "NDX", "NASDAQ")))
+    bool fES   = r == "ES" or r == "MES" or (cash and poHasAny(t, array.from("US500", "SPX", "SP500")))
+    bool fYM   = r == "YM" or r == "MYM" or (cash and poHasAny(t, array.from("US30", "DJI", "DJ30", "WS30")))
+    bool fRTY  = r == "RTY" or r == "M2K" or (cash and poHasAny(t, array.from("US2000", "RUT", "RUSSELL")))
+    bool fDAX  = r == "FDAX" or r == "FDXM" or (cash and poHasAny(t, array.from("GER40", "DE40", "DAX", "GER30", "DE30")))
+    bool fSX5E = r == "FESX" or (cash and poHasAny(t, array.from("EU50", "STOXX50", "SX5E", "ESTX50")))
+    bool fFTSE = r == "Z" or (cash and poHasAny(t, array.from("UK100", "FTSE")))
+
+    // commodities
+    bool fGold = r == "GC" or r == "MGC" or (cash and poHasAny(t, array.from("XAUUSD", "GOLD")))
+    bool fSilv = r == "SI" or r == "SIL" or (cash and poHasAny(t, array.from("XAGUSD", "SILVER")))
+    bool fPlat = r == "PL" or (cash and poHasAny(t, array.from("XPTUSD", "PLATINUM")))
+    bool fPall = r == "PA" or (cash and poHasAny(t, array.from("XPDUSD", "PALLADIUM")))
+    bool fCopp = r == "HG" or (cash and poHasAny(t, array.from("COPPER", "XCUUSD")))
+    bool fWti  = r == "CL" or r == "MCL" or (cash and poHasAny(t, array.from("USOIL", "WTI", "XTIUSD", "CRUDE")))
+    bool fBrnt = r == "BRN" or (cash and poHasAny(t, array.from("UKOIL", "BRENT", "XBRUSD")))
+
+    string a = ""
+    string b = ""
+    string c = ""
+    bool ia = false
+    bool ib = false
+    bool ic = false
+    string cls = ""
+
+    if isCrypto
+        // BTC -> ETH, SOL, XRP | ETH -> BTC, SOL, XRP | others -> BTC, ETH, SOL
+        array<string> maj = array.from("BTC", "ETH", "SOL", "XRP")
+        string px  = syminfo.prefix + ":"
+        string sfx = perp ? ".P" : ""
+        int cnt = 0
+        for m in maj
+            if m != bc and cnt < 3
+                string s = px + m + qc + sfx
+                if cnt == 0
+                    a := s
+                else if cnt == 1
+                    b := s
+                else
+                    c := s
+                cnt += 1
+        cls := "crypto"
+    else if ty == "futures" and (r == "BTC" or r == "MBT")
+        a := "CME:ETH1!"
+        cls := "crypto"
+    else if ty == "futures" and (r == "ETH" or r == "MET")
+        a := "CME:BTC1!"
+        cls := "crypto"
+    else if isFx
+        if qc == "USD"
+            // EURUSD, GBPUSD, AUDUSD, NZDUSD
+            string x1 = bc == "EUR" ? "GBP" : bc == "GBP" ? "EUR" : bc == "AUD" ? "NZD" : bc == "NZD" ? "AUD" : "EUR"
+            string x2 = bc == "EUR" or bc == "GBP" ? "CHF" : bc == "AUD" ? "EUR" : bc == "NZD" ? "GBP" : "GBP"
+            [s1, i1] = poFxPair(x1, "USD")
+            [s2, i2] = poFxPair(x2, "USD")
+            a := s1
+            ia := i1
+            b := "TVC:DXY"
+            ib := true
+            c := s2
+            ic := i2
+        else if bc == "USD"
+            // USDJPY, USDCHF, USDCAD
+            string y1 = qc == "JPY" ? "CHF" : "JPY"
+            string y2 = qc == "CAD" ? "CHF" : "CAD"
+            [s1, i1] = poFxPair("USD", y1)
+            [s2, i2] = poFxPair("USD", y2)
+            a := s1
+            ia := i1
+            b := "TVC:DXY"
+            ib := false
+            c := s2
+            ic := i2
+        else
+            // cross / minor: EURGBP, EURJPY, GBPJPY, AUDJPY, AUDNZD, CADJPY, ...
+            // A = BASE vs USD, B = USD vs QUOTE (same direction as chart), C = BASE vs another currency
+            array<string> cand = array.from("JPY", "CHF", "CAD", "AUD", "GBP", "EUR", "NZD")
+            string xc = ""
+            for x in cand
+                if xc == "" and x != bc and x != qc
+                    xc := x
+            [sA, iA] = poFxPair(bc, "USD")
+            [sB, iB] = poFxPair("USD", qc)
+            [sC, iC] = poFxPair(bc, xc)
+            a := sA
+            ia := iA
+            b := sB
+            ib := iB
+            c := sC
+            ic := iC
+        cls := "fx"
+    else if r == "DXY"
+        a := "OANDA:EURUSD"
+        b := "OANDA:GBPUSD"
+        c := "OANDA:USDJPY"
+        ia := true
+        ib := true
+        cls := "fx"
+    else if fNQ
+        a := "CME_MINI:MES1!"
+        b := gxt ? "CME_MINI:M2K1!" : "CBOT_MINI:MYM1!"
+        c := "CME_MINI:M2K1!"
+        cls := "idx"
+    else if fES
+        a := "CME_MINI:MNQ1!"
+        b := gxt ? "CME_MINI:M2K1!" : "CBOT_MINI:MYM1!"
+        c := "CME_MINI:M2K1!"
+        cls := "idx"
+    else if fYM
+        a := "CME_MINI:MES1!"
+        b := gxt ? "CME_MINI:M2K1!" : "CME_MINI:MNQ1!"
+        c := "CME_MINI:M2K1!"
+        cls := "idx"
+    else if fRTY
+        a := "CME_MINI:MES1!"
+        b := "CME_MINI:MNQ1!"
+        c := "CBOT_MINI:MYM1!"
+        cls := "idx"
+    else if fDAX
+        a := "EUREX:FESX1!"
+        b := "ICEEUR:Z1!"
+        c := "CME_MINI:MNQ1!"
+        cls := "idx"
+    else if fSX5E
+        a := "EUREX:FDAX1!"
+        b := "ICEEUR:Z1!"
+        c := "CME_MINI:MES1!"
+        cls := "idx"
+    else if fFTSE
+        a := "EUREX:FDAX1!"
+        b := "EUREX:FESX1!"
+        c := "CME_MINI:MES1!"
+        cls := "idx"
+    else if fGold
+        a := "COMEX:SI1!"
+        b := gxt ? "OANDA:XAUGBP" : "OANDA:XAUEUR"
+        c := "OANDA:XAUGBP"
+        cls := "com"
+    else if fSilv
+        a := "COMEX:GC1!"
+        b := "COMEX:HG1!"
+        c := "NYMEX:PL1!"
+        cls := "com"
+    else if fPlat
+        a := "COMEX:GC1!"
+        b := "COMEX:SI1!"
+        c := "NYMEX:PA1!"
+        cls := "com"
+    else if fPall
+        a := "NYMEX:PL1!"
+        b := "COMEX:GC1!"
+        c := "COMEX:SI1!"
+        cls := "com"
+    else if fCopp
+        a := "COMEX:GC1!"
+        b := "COMEX:SI1!"
+        c := "NYMEX:PL1!"
+        cls := "com"
+    else if fWti
+        a := "NYMEX:RB1!"
+        b := "NYMEX:HO1!"
+        c := "ICEEUR:BRN1!"
+        cls := "com"
+    else if fBrnt
+        a := "NYMEX:CL1!"
+        b := "NYMEX:RB1!"
+        c := "NYMEX:HO1!"
+        cls := "com"
+    else if r == "RB"
+        a := "NYMEX:CL1!"
+        b := "NYMEX:HO1!"
+        c := "ICEEUR:BRN1!"
+        cls := "com"
+    else if r == "HO"
+        a := "NYMEX:CL1!"
+        b := "NYMEX:RB1!"
+        c := "ICEEUR:BRN1!"
+        cls := "com"
+    else if r == "ZB" or r == "UB"
+        a := "CBOT:ZN1!"
+        b := "CBOT:ZF1!"
+        c := "CBOT:ZT1!"
+        cls := "bond"
+    else if r == "ZN"
+        a := "CBOT:ZB1!"
+        b := "CBOT:ZF1!"
+        c := "CBOT:ZT1!"
+        cls := "bond"
+    else if r == "ZF"
+        a := "CBOT:ZN1!"
+        b := "CBOT:ZB1!"
+        c := "CBOT:ZT1!"
+        cls := "bond"
+    else if r == "ZT"
+        a := "CBOT:ZF1!"
+        b := "CBOT:ZN1!"
+        c := "CBOT:ZB1!"
+        cls := "bond"
+    [a, b, c, ia, ib, ic, cls]
+
+// Computed ONCE on the first bar (symbol and inputs do not change while the script runs).
+var string poAutoA   = ""
+var string poAutoB   = ""
+var string poAutoC   = ""
+var bool   poAutoIA  = false
+var bool   poAutoIB  = false
+var bool   poAutoIC  = false
+var string poAutoCls = ""
+if barstate.isfirst
+    [qa, qb, qc3, qia, qib, qic, qcls] = poAutoSet()
+    poAutoA := qa
+    poAutoB := qb
+    poAutoC := qc3
+    poAutoIA := qia
+    poAutoIB := qib
+    poAutoIC := qic
+    poAutoCls := qcls
+
+poSameSym(string x, string y) =>
+    str.length(x) > 0 and str.length(y) > 0 and str.upper(poShort(x)) == str.upper(poShort(y))
+
+poIsSelf(string s) =>
+    string u = str.replace_all(str.upper(poShort(s)), "1!", "")
+    str.length(s) > 0 and (u == str.upper(syminfo.ticker) or u == str.upper(syminfo.root))
+
+bool   poAutoHit = poCorrMode == "Auto" and poAutoA != ""
+int    poAutoCnt = poDivMode == "Dyad" ? 1 : poDivMode == "Tetrad" ? 3 : 2
+
+string poSym1 = poAutoHit ? poAutoA : poMS1
+string poSym2 = poAutoHit ? poAutoB : poMS2
+string poSym3 = poAutoHit ? poAutoC : poMS3
+string poSym4 = poMS4
+bool   poInv1 = poAutoHit ? poAutoIA : poMI1
+bool   poInv2 = poAutoHit ? poAutoIB : poMI2
+bool   poInv3 = poAutoHit ? poAutoIC : poMI3
+bool   poInv4 = poMI4
+bool   poOn1  = (poAutoHit ? poAutoCnt >= 1 : poM1) and not poIsSelf(poSym1)
+bool   poOn2  = (poAutoHit ? poAutoCnt >= 2 : poM2) and not poIsSelf(poSym2)
+bool   poOn3  = (poAutoHit ? poAutoCnt >= 3 : poM3) and not poIsSelf(poSym3)
+bool   poDup4 = poAutoHit and (poSameSym(poSym4, poSym1) or poSameSym(poSym4, poSym2) or poSameSym(poSym4, poSym3))
+bool   poOn4  = poM4 and not poIsSelf(poSym4) and not poDup4
+bool   poHas1 = str.length(poSym1) > 0
+bool   poHas2 = str.length(poSym2) > 0
+bool   poHas3 = str.length(poSym3) > 0
+bool   poHas4 = str.length(poSym4) > 0
+
+string comparisonSymbol1 = poSym1
+string comparisonSymbol2 = poSym2
+string comparisonSymbol3 = poSym3
+string comparisonSymbol4 = poSym4
+bool   cmpInv1 = poInv1
+bool   cmpInv2 = poInv2
+bool   cmpInv3 = poInv3
+bool   cmpInv4 = poInv4
+bool   useComparison1 = quickCmp1 and poHas1
+bool   useComparison2 = quickCmp2 and poHas2
+bool   useComparison3 = quickCmp3 and poHas3
+bool   useComparison4 = quickCmp4 and poHas4
+string comparisonTicker1 = poHas1 ? poTickerOf(poSym1) : syminfo.tickerid
+string comparisonTicker2 = poHas2 ? poTickerOf(poSym2) : syminfo.tickerid
+string comparisonTicker3 = poHas3 ? poTickerOf(poSym3) : syminfo.tickerid
+string comparisonTicker4 = poHas4 ? poTickerOf(poSym4) : syminfo.tickerid
+
+bool poUse1 = bandzModulePo3 and poOn1 and poHas1
+bool poUse2 = bandzModulePo3 and poOn2 and poHas2
+bool poUse3 = bandzModulePo3 and poOn3 and poHas3
+bool poUse4 = bandzModulePo3 and poOn4 and poHas4
+bool poFeed1 = poUse1 or useComparison1
+bool poFeed2 = poUse2 or useComparison2
+bool poFeed3 = poUse3 or useComparison3
+bool poFeed4 = poUse4 or useComparison4
+
+int   poF1T = na
+int   poF1Tc = na
+float poF1O = na
+float poF1H = na
+float poF1L = na
+float poF1C = na
+if poFeed1
+    [poF1Tr, poF1Tcr, poF1Or, poF1Hr, poF1Lr, poF1Cr] = poRequestCmp(comparisonTicker1)
+    poF1T := poF1Tr
+    poF1Tc := poF1Tcr
+    poF1O := poF1Or
+    poF1H := poF1Hr
+    poF1L := poF1Lr
+    poF1C := poF1Cr
+bool  poF1Ok = poFeed1 and not na(poF1T) and not na(poF1Tc) and poF1T == time and poF1Tc == time_close and not na(poF1O) and not na(poF1H) and not na(poF1L) and not na(poF1C)
+float cmp1HighChart = useComparison1 and poF1Ok ? poF1H : na
+float cmp1LowChart = useComparison1 and poF1Ok ? poF1L : na
+
+int   poF2T = na
+int   poF2Tc = na
+float poF2O = na
+float poF2H = na
+float poF2L = na
+float poF2C = na
+if poFeed2
+    [poF2Tr, poF2Tcr, poF2Or, poF2Hr, poF2Lr, poF2Cr] = poRequestCmp(comparisonTicker2)
+    poF2T := poF2Tr
+    poF2Tc := poF2Tcr
+    poF2O := poF2Or
+    poF2H := poF2Hr
+    poF2L := poF2Lr
+    poF2C := poF2Cr
+bool  poF2Ok = poFeed2 and not na(poF2T) and not na(poF2Tc) and poF2T == time and poF2Tc == time_close and not na(poF2O) and not na(poF2H) and not na(poF2L) and not na(poF2C)
+float cmp2HighChart = useComparison2 and poF2Ok ? poF2H : na
+float cmp2LowChart = useComparison2 and poF2Ok ? poF2L : na
+
+int   poF3T = na
+int   poF3Tc = na
+float poF3O = na
+float poF3H = na
+float poF3L = na
+float poF3C = na
+if poFeed3
+    [poF3Tr, poF3Tcr, poF3Or, poF3Hr, poF3Lr, poF3Cr] = poRequestCmp(comparisonTicker3)
+    poF3T := poF3Tr
+    poF3Tc := poF3Tcr
+    poF3O := poF3Or
+    poF3H := poF3Hr
+    poF3L := poF3Lr
+    poF3C := poF3Cr
+bool  poF3Ok = poFeed3 and not na(poF3T) and not na(poF3Tc) and poF3T == time and poF3Tc == time_close and not na(poF3O) and not na(poF3H) and not na(poF3L) and not na(poF3C)
+float cmp3HighChart = useComparison3 and poF3Ok ? poF3H : na
+float cmp3LowChart = useComparison3 and poF3Ok ? poF3L : na
+
+int   poF4T = na
+int   poF4Tc = na
+float poF4O = na
+float poF4H = na
+float poF4L = na
+float poF4C = na
+if poFeed4
+    [poF4Tr, poF4Tcr, poF4Or, poF4Hr, poF4Lr, poF4Cr] = poRequestCmp(comparisonTicker4)
+    poF4T := poF4Tr
+    poF4Tc := poF4Tcr
+    poF4O := poF4Or
+    poF4H := poF4Hr
+    poF4L := poF4Lr
+    poF4C := poF4Cr
+bool  poF4Ok = poFeed4 and not na(poF4T) and not na(poF4Tc) and poF4T == time and poF4Tc == time_close and not na(poF4O) and not na(poF4H) and not na(poF4L) and not na(poF4C)
+float cmp4HighChart = useComparison4 and poF4Ok ? poF4H : na
+float cmp4LowChart = useComparison4 and poF4Ok ? poF4L : na
+
+array<float> poSO  = array.from(poF1Ok ? poF1O : na, poF2Ok ? poF2O : na, poF3Ok ? poF3O : na, poF4Ok ? poF4O : na)
+array<float> poSH  = array.from(poF1Ok ? poF1H : na, poF2Ok ? poF2H : na, poF3Ok ? poF3H : na, poF4Ok ? poF4H : na)
+array<float> poSL  = array.from(poF1Ok ? poF1L : na, poF2Ok ? poF2L : na, poF3Ok ? poF3L : na, poF4Ok ? poF4L : na)
+array<float> poSC  = array.from(poF1Ok ? poF1C : na, poF2Ok ? poF2C : na, poF3Ok ? poF3C : na, poF4Ok ? poF4C : na)
+array<bool>  poSOk = array.from(poF1Ok and poUse1, poF2Ok and poUse2, poF3Ok and poUse3, poF4Ok and poUse4)
+
+var array<bool>   poAOn    = array.from(poUse1, poUse2, poUse3, poUse4)
+var array<bool>   poAInv   = array.from(poInv1, poInv2, poInv3, poInv4)
+poLogoSym(string s) =>
+    string out = str.upper(str.replace_all(str.replace_all(poShort(s), "1!", ""), "2!", ""))
+    if out == "MES" or out == "ES"
+        out := "es"
+    else if out == "MNQ" or out == "NQ"
+        out := "nq"
+    else if out == "MYM" or out == "YM"
+        out := "ym"
+    else if out == "M2K" or out == "RTY"
+        out := "rty"
+    else if out == "MGC" or out == "GC"
+        out := "gc"
+    else if out == "SIL" or out == "SI"
+        out := "si"
+    else if out == "MCL" or out == "CL"
+        out := "cl"
+    else
+        out := str.lower(out)
+    out
+
+poTfLogo(string tf) =>
+    float sec = timeframe.in_seconds(tf)
+    string out = str.lower(tf)
+    if not na(sec)
+        if sec < 60
+            out := str.tostring(int(sec)) + "s"
+        else if sec < 3600
+            out := "m" + str.tostring(int(sec / 60))
+        else if sec < 86400
+            out := str.tostring(int(sec / 3600)) + "hr"
+        else if sec == 86400
+            out := "1d"
+        else if sec == 604800
+            out := "1w"
+    out
+
+var array<string> poALogos = array.from(poLogoSym(poSym1), poLogoSym(poSym2), poLogoSym(poSym3), poLogoSym(poSym4))
+var array<string> poANames = array.from(str.replace_all(poShort(poSym1), "1!", ""), str.replace_all(poShort(poSym2), "1!", ""), str.replace_all(poShort(poSym3), "1!", ""), str.replace_all(poShort(poSym4), "1!", ""))
+
+// ── Types ────────────────────────────────────────────────────────────────────
+type PoCandle
+    float o
+    float h
+    float l
+    float c
+    int   startBar
+    int   startTime
+    int   hiBar
+    int   loBar
+    array<float> ao
+    array<float> ah
+    array<float> al
+    array<float> ac
+    array<bool>  ok
+
+type PoLane
+    array<PoCandle> cs
+    string tf
+    int    count
+    bool   active
+
+type PoSeq
+    int  side
+    int  i1
+    int  i2
+    int  phase
+    bool closedIn
+    bool twoSided
+    bool alive
+
+type PoRec
+    int   side
+    int   c1StartBar
+    int   c1ExtBar
+    float c1Level
+    int   c2StartBar
+    int   c2StartTime
+    float c2Open
+    float c2Wick
+    int   c2ExtBar
+    int   c3StartBar
+    int   c3StartTime
+    int   c4StartTime
+    int   endTime
+    int   maxPhase
+    bool  alive
+    bool  twoSided
+    bool  psp
+    bool  smt
+    float c1Hi
+    float c1Lo
+    bool  spot3Dead
+    bool  spot4Dead
+    bool  dispFvg
+    array<int>   mcBar
+    array<int>   mcStart
+    array<float> mcLvl
+    float c2Close
+    float c2Rng
+    float c3Open
+    float c3Wick
+    float c3Close
+    float c3Rng
+    int   cisdBar
+    int   cisdStartBar
+    float cisdLevel
+    int   cisdTime
+    int   cisdBrokeT
+    bool  alertCisd
+    bool  alertC3
+    bool  alertC4
+    bool  cisdTried
+    int   c3LeftBar
+    int   c4LeftBar
+    int   sigC3T      // v4.3: time of the C3 T-Spot signal of THIS sequence
+    int   sigC4T      // v4.3: time of the C4 T-Spot signal of THIS sequence
+
+type PoSmt
+    int    lane
+    int    dir
+    int    refStart
+    int    curStart
+    float  refLevel
+    float  curLevel
+    int    refBar
+    int    curBar
+    string who
+    bool   ssmt
+    int    madeBar
+    int    seenBar
+
+type PoCisd
+    bool  bull
+    int   startBar
+    float level
+    int   confirmBar
+
+type PoOpen
+    int   bar
+    int   time
+    float price
+
+var array<PoLane> poLanes    = array.new<PoLane>()
+var array<PoRec>  poRecs     = array.new<PoRec>()
+var array<PoSmt>  poSmtMarks = array.new<PoSmt>()
+var array<PoCisd> poCisds    = array.new<PoCisd>()
+var array<PoOpen> poOpens    = array.new<PoOpen>()
+var array<box>    poBoxes    = array.new<box>()
+var array<line>   poLines    = array.new<line>()
+var array<label>  poLabels   = array.new<label>()
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+poDir(float o, float c) =>
+    c > o ? 1 : c < o ? -1 : 0
+
+poSize(string choice) =>
+    switch choice
+        "Tiny" => size.tiny
+        "Small" => size.small
+        "Normal" => size.normal
+        "Large" => size.large
+        => size.tiny
+
+poFmtTf(string tf) =>
+    float s = timeframe.in_seconds(tf)
+    string r = tf
+    if not na(s)
+        if s < 3600 or (s < 86400 and s % 3600 != 0)
+            r := str.tostring(int(s / 60)) + "m"
+        else if s < 86400
+            r := str.tostring(int(s / 3600)) + "H"
+        else if s < 604800
+            r := str.tostring(int(s / 86400)) + "D"
+        else if s < 2592000
+            r := str.tostring(int(s / 604800)) + "W"
+        else
+            r := str.tostring(int(s / 2592000)) + "M"
+    r
+
+// NOTE: poCountdown / poPctLeft are now defined AFTER poBk3 below, so they can use the same
+// NY-anchored bucket as the HTF candle cutter (fixes the stale 00:00 badge on 6H / 12H).
+
+poTfValid(string tf) =>
+    bool ok = false
+    if str.length(tf) > 0
+        float a = timeframe.in_seconds(tf)
+        float b = timeframe.in_seconds()
+        ok := not na(a) and not na(b) and a > b
+    ok
+
+poSameTf(string a, string b) =>
+    timeframe.in_seconds(a) == timeframe.in_seconds(b)
+
+poIsQuarterTf(string tf) =>
+    float s = timeframe.in_seconds(tf)
+    s == 5400 or s == 21600
+
+poAutoLaneTf(int n) =>
+    float s = timeframe.in_seconds()
+    string mid = poPreset == "6H / 90m" ? "90" : "60"
+    string top = poPreset == "6H / 90m" ? "360" : poPreset == "7H / 1H" ? "420" : "240"
+    string r = ""
+    if timeframe.isintraday
+        if s <= 60
+            r := n == 1 ? "15" : n == 2 ? mid : n == 3 ? top : ""
+        else if s <= 300
+            r := n == 1 ? "30" : n == 2 ? mid : n == 3 ? top : ""
+        else if s <= 900
+            r := n == 1 ? mid : n == 2 ? top : n == 3 ? "1D" : ""
+        else if s <= 3600
+            r := n == 1 ? top : n == 2 ? "1D" : n == 3 ? "1W" : ""
+        else
+            r := n == 1 ? "1D" : n == 2 ? "1W" : n == 3 ? "1M" : ""
+    else if timeframe.isdaily
+        r := n == 1 ? "1W" : n == 2 ? "1M" : n == 3 ? "3M" : ""
+    else if timeframe.isweekly
+        r := n == 1 ? "1M" : n == 2 ? "3M" : n == 3 ? "12M" : ""
+    r
+
+poLevelUsed(array<float> arr, float lvl) =>
+    bool used = false
+    if arr.size() > 0
+        for i = 0 to arr.size() - 1
+            if math.abs(arr.get(i) - lvl) <= syminfo.mintick * 2
+                used := true
+    used
+
+poIdxByStart(PoLane ln, int startBar) =>
+    int idx = -1
+    int n = ln.cs.size()
+    if n > 0
+        for i = 0 to n - 1
+            if ln.cs.get(i).startBar == startBar
+                idx := i
+    idx
+
+// Fixed-anchor bucket number of the current bar (wall-clock in poTz, so it is DST safe).
+// Two bars with the same bucket belong to the same HTF candle.
+poBucket(string tf) =>
+    int sec = int(timeframe.in_seconds(tf))
+    int lm = timestamp("UTC", year(time, poTz), month(time, poTz), dayofmonth(time, poTz), hour(time, poTz), minute(time, poTz), 0)
+    int(math.floor((lm - poAnchorH * 3600000) / (sec * 1000.0)))
+
+// ── Lane resolution ──────────────────────────────────────────────────────────
+string poTf1 = poAutoHtf ? poAutoLaneTf(1) : poL1Tf
+string poTf2 = poAutoHtf ? poAutoLaneTf(2) : poL2Tf
+string poTf3 = poAutoHtf ? poAutoLaneTf(3) : poL3Tf
+int    poN1  = poAutoCount ? 8 : poL1N
+int    poN2  = poAutoCount ? 6 : poL2N
+int    poN3  = poAutoCount ? 3 : poL3N
+bool   poLaneOk1 = bandzModulePo3 and poL1On and poTfValid(poTf1)
+bool   poLaneOk2 = bandzModulePo3 and poL2On and poTfValid(poTf2)
+bool   poLaneOk3 = bandzModulePo3 and poL3On and poTfValid(poTf3)
+bool   poAnch = timeframe.isintraday
+int    poBk1  = poBucket(poTf1)
+int    poBk2  = poBucket(poTf2)
+int    poBk3  = poBucket(poTf3)
+
+// =============================================================================
+// v4.1 FIX: countdown / %-left now follow the SAME NY-anchored bucket as the
+// HTF candle cutter. Before, they used time_close(tf) (exchange session clock),
+// which for 6H / 12H could be na or already past -> math.max(..., 0) -> 00:00.
+// =============================================================================
+// Local-time offset (poTz) vs UTC for the current bar
+int poTzOff = timestamp("UTC", year(time, poTz), month(time, poTz), dayofmonth(time, poTz), hour(time, poTz), minute(time, poTz), 0) - (time - time % 60000)
+
+// Open / close of the HTF candle built from the same anchor bucket as the cutter.
+// Falls back to time(tf) / time_close(tf) for 1D+ and non-intraday charts.
+poHtfSpan(string tf, int bk) =>
+    float sec = timeframe.in_seconds(tf)
+    int o = na
+    int c = na
+    if poAnch and not na(sec) and sec < 86400 and not na(bk)
+        o := int(poAnchorH * 3600000.0 + bk * sec * 1000.0) - poTzOff
+        c := int(poAnchorH * 3600000.0 + (bk + 1) * sec * 1000.0) - poTzOff
+    else
+        o := time(tf)
+        c := time_close(tf)
+    [o, c]
+
+poCountdown(string tf, int bk) =>
+    [openT, closeT] = poHtfSpan(tf, bk)
+    string res = ""
+    if not na(closeT)
+        int nowT = barstate.isrealtime ? timenow : math.min(timenow, na(time_close) ? timenow : time_close)
+        int remMs = math.max(closeT - nowT, 0)
+        int totalS = int(math.floor(remMs / 1000.0))
+        int hrs = int(math.floor(totalS / 3600.0))
+        int mins = int(math.floor((totalS % 3600) / 60.0))
+        int secs = totalS % 60
+        string mm = mins < 10 ? "0" + str.tostring(mins) : str.tostring(mins)
+        string ss = secs < 10 ? "0" + str.tostring(secs) : str.tostring(secs)
+        res := hrs > 0 ? str.tostring(hrs) + ":" + mm + ":" + ss : mm + ":" + ss
+    res
+
+poPctLeft(string tf, int bk) =>
+    [openT, closeT] = poHtfSpan(tf, bk)
+    float res = na
+    if not na(closeT) and not na(openT) and closeT > openT
+        int nowT = barstate.isrealtime ? timenow : math.min(timenow, na(time_close) ? timenow : time_close)
+        res := math.max(0.0, math.min(1.0, float(closeT - nowT) / float(closeT - openT)))
+    res
+// =============================================================================
+
+bool   poNew1 = poLaneOk1 and (poAnch and timeframe.in_seconds(poTf1) < 86400 ? (na(poBk1[1]) or poBk1 != poBk1[1]) : timeframe.change(poTf1))
+bool   poNew2 = poLaneOk2 and (poAnch and timeframe.in_seconds(poTf2) < 86400 ? (na(poBk2[1]) or poBk2 != poBk2[1]) : timeframe.change(poTf2))
+bool   poNew3 = poLaneOk3 and (poAnch and timeframe.in_seconds(poTf3) < 86400 ? (na(poBk3[1]) or poBk3 != poBk3[1]) : timeframe.change(poTf3))
+
+if poLanes.size() == 0
+    poLanes.push(PoLane.new(array.new<PoCandle>(), poTf1, poN1, poLaneOk1))
+    poLanes.push(PoLane.new(array.new<PoCandle>(), poTf2, poN2, poLaneOk2))
+    poLanes.push(PoLane.new(array.new<PoCandle>(), poTf3, poN3, poLaneOk3))
+
+poPickSource() =>
+    int pick = 0
+    float cs = timeframe.in_seconds()
+    if poSourceSel == "HTF 1"
+        pick := poLaneOk1 ? 1 : 0
+    else if poSourceSel == "HTF 2"
+        pick := poLaneOk2 ? 2 : 0
+    else if poSourceSel == "HTF 3"
+        pick := poLaneOk3 ? 3 : 0
+    else
+        if poLaneOk1 and timeframe.in_seconds(poTf1) / cs >= 12.0
+            pick := 1
+        else if poLaneOk2 and timeframe.in_seconds(poTf2) / cs >= 12.0
+            pick := 2
+        else if poLaneOk3 and timeframe.in_seconds(poTf3) / cs >= 12.0
+            pick := 3
+        else if poLaneOk3
+            pick := 3
+        else if poLaneOk2
+            pick := 2
+        else if poLaneOk1
+            pick := 1
+    pick
+
+int    poSrcNo   = poPickSource()
+PoLane poSrcLane = poLanes.get(math.max(poSrcNo, 1) - 1)
+bool   poSrcOk   = poSrcNo > 0 and poSrcLane.active
+bool   poSrcNew  = poSrcNo == 1 ? poNew1 : poSrcNo == 2 ? poNew2 : poSrcNo == 3 ? poNew3 : false
+
+bool   poVOpenOwn = poTfValid(poVOpenTfIn)
+bool   poVOpenNew = poVOpenOwn ? timeframe.change(poVOpenTfIn) : poSrcNew
+
+float poHi300 = ta.highest(high, 300)
+float poLo300 = ta.lowest(low, 300)
+
+// ── HTF candle tracking ──────────────────────────────────────────────────────
+poOpenCandle(PoLane lane) =>
+    PoCandle cd = PoCandle.new(open, high, low, close, bar_index, time, bar_index, bar_index, array.copy(poSO), array.copy(poSH), array.copy(poSL), array.copy(poSC), array.copy(poSOk))
+    lane.cs.push(cd)
+    while lane.cs.size() > 24
+        lane.cs.shift()
+    lane
+
+poUpdateCandle(PoLane lane) =>
+    int n = lane.cs.size()
+    if n > 0
+        PoCandle cd = lane.cs.get(n - 1)
+        if high > cd.h
+            cd.h := high
+            cd.hiBar := bar_index
+        if low < cd.l
+            cd.l := low
+            cd.loBar := bar_index
+        cd.c := close
+        for k = 0 to 3
+            if poSOk.get(k)
+                if cd.ok.get(k)
+                    cd.ah.set(k, math.max(cd.ah.get(k), poSH.get(k)))
+                    cd.al.set(k, math.min(cd.al.get(k), poSL.get(k)))
+                    cd.ac.set(k, poSC.get(k))
+                else
+                    cd.ao.set(k, poSO.get(k))
+                    cd.ah.set(k, poSH.get(k))
+                    cd.al.set(k, poSL.get(k))
+                    cd.ac.set(k, poSC.get(k))
+                    cd.ok.set(k, true)
+    lane
+
+poIngest(PoLane lane, bool isNew) =>
+    if lane.active
+        int n = lane.cs.size()
+        bool opened = n > 0 and lane.cs.get(n - 1).startTime == time
+        if isNew and not opened
+            poOpenCandle(lane)
+        else
+            poUpdateCandle(lane)
+    lane
+
+if poCalc
+    poIngest(poLanes.get(0), poNew1)
+    poIngest(poLanes.get(1), poNew2)
+    poIngest(poLanes.get(2), poNew3)
+
+// ── HTF liquidity ────────────────────────────────────────────────────────────
+type PoLiq
+    int   lane
+    bool  hi
+    float level
+    int   t
+    int   sweptT
+
+var array<PoLiq> poLiqs = array.new<PoLiq>()
+
+poLiqAdd(int laneNo, bool isHi, float lvl, int t) =>
+    bool dup = false
+    if poLiqs.size() > 0
+        for i = 0 to poLiqs.size() - 1
+            PoLiq q = poLiqs.get(i)
+            if q.lane == laneNo and q.hi == isHi and q.t == t
+                dup := true
+    if not dup
+        poLiqs.push(PoLiq.new(laneNo, isHi, lvl, t, na))
+        while poLiqs.size() > 40
+            poLiqs.shift()
+    0
+
+poLiqScan(int laneNo, bool isNew) =>
+    PoLane ln = poLanes.get(laneNo - 1)
+    int n = ln.cs.size()
+    if isNew and ln.active and n >= 4
+        PoCandle a = ln.cs.get(n - 4)
+        PoCandle c = ln.cs.get(n - 3)
+        PoCandle b = ln.cs.get(n - 2)
+        if c.h > a.h and c.h > b.h
+            poLiqAdd(laneNo, true, c.h, time[math.min(bar_index - c.hiBar, 4900)])
+        if c.l < a.l and c.l < b.l
+            poLiqAdd(laneNo, false, c.l, time[math.min(bar_index - c.loBar, 4900)])
+    0
+
+poLiqScan(1, poCalc and poLiqOn and poNew1)
+poLiqScan(2, poCalc and poLiqOn and poNew2)
+poLiqScan(3, poCalc and poLiqOn and poNew3)
+if poLiqOn and poLiqs.size() > 0
+    for i = 0 to poLiqs.size() - 1
+        PoLiq q = poLiqs.get(i)
+        if na(q.sweptT) and time > q.t and (q.hi ? high > q.level : low < q.level)
+            q.sweptT := time
+
+// ── PSP ──────────────────────────────────────────────────────────────────────
+poPspFlag(PoCandle cd) =>
+    int d = poDir(cd.o, cd.c)
+    int valid = 0
+    int differ = 0
+    for k = 0 to 3
+        if poAOn.get(k) and cd.ok.get(k)
+            valid += 1
+            int dk = poDir(cd.ao.get(k), cd.ac.get(k)) * (poAInv.get(k) ? -1 : 1)
+            // v4: a doji (direction 0) on either side is not a divergence
+            if dk != d and dk != 0 and d != 0
+                differ += 1
+    bool res = false
+    if valid > 0
+        res := poPspAll ? differ == valid : differ > 0
+    res
+
+// ── Po3 sequence ─────────────────────────────────────────────────────────────
+poEvalSide(array<PoCandle> cs, int side) =>
+    PoSeq res = PoSeq.new(side, na, na, 0, false, false, false)
+    int n = cs.size()
+    if n >= 2
+        for back = 0 to 2
+            int i2 = n - 1 - back
+            if i2 >= 1 and not res.alive
+                PoCandle c1 = cs.get(i2 - 1)
+                PoCandle c2 = cs.get(i2)
+                bool isLive = i2 == n - 1
+                bool openInside = c2.o <= c1.h and c2.o >= c1.l
+                bool hiSw = c2.h > c1.h
+                bool loSw = c2.l < c1.l
+                bool closedIn = c2.c < c1.h and c2.c > c1.l
+                bool sweptThis = side == -1 ? hiSw : loSw
+                bool sweptOther = side == -1 ? loSw : hiSw
+                // v4: manipulation quality, C2 must run past C1 by a minimum share of the C1 range
+                float c1r = c1.h - c1.l
+                float swDepth = side == -1 ? c2.h - c1.h : c1.l - c2.l
+                bool deepEnough = c1r > 0 and swDepth >= c1r * poC2MinSweep / 100.0
+                // v4.4: "C2 must close inside C1" is a filter, not a hard rule -> honoured here too,
+                // otherwise switching it off could never bring a reclaim-less sequence up.
+                if openInside and sweptThis and deepEnough and (isLive or not poReqC2In or closedIn)
+                    bool survives = true
+                    if i2 < n - 1
+                        for j = i2 + 1 to n - 1
+                            PoCandle cj = cs.get(j)
+                            if side == -1 and cj.h > c2.h
+                                survives := false
+                            if side == 1 and cj.l < c2.l
+                                survives := false
+                    // v4: failed distribution. C3 closed (not live) against the sequence = stop, no C4
+                    if survives and poReqC3Dir and i2 < n - 2
+                        PoCandle c3x = cs.get(i2 + 1)
+                        survives := side == -1 ? c3x.c < c2.c : c3x.c > c2.c
+                    if survives
+                        res.i1 := i2 - 1
+                        res.i2 := i2
+                        res.phase := back + 2
+                        res.closedIn := closedIn
+                        res.twoSided := sweptOther
+                        res.alive := true
+    res
+
+poFindRec(int side, int c2Start) =>
+    int idx = -1
+    if poRecs.size() > 0
+        for i = 0 to poRecs.size() - 1
+            PoRec r0 = poRecs.get(i)
+            if r0.side == side and r0.c2StartBar == c2Start
+                idx := i
+    idx
+
+poSyncRecs(PoLane lane, PoSeq sq) =>
+    int curC2 = na
+    if sq.alive
+        PoCandle c1 = lane.cs.get(sq.i1)
+        PoCandle c2 = lane.cs.get(sq.i2)
+        curC2 := c2.startBar
+        int found = poFindRec(sq.side, c2.startBar)
+        PoRec rc = na
+        if found >= 0
+            rc := poRecs.get(found)
+        else
+            rc := PoRec.new()
+            rc.side := sq.side
+            rc.maxPhase := 0
+            rc.mcBar := array.new_int(3, na)
+            rc.mcStart := array.new_int(3, na)
+            rc.mcLvl := array.new_float(3, na)
+            rc.alertCisd := false
+            rc.alertC3 := false
+            rc.alertC4 := false
+            rc.cisdTried := false
+            poRecs.push(rc)
+            while poRecs.size() > 10
+                poRecs.shift()
+        rc.c1StartBar := c1.startBar
+        rc.c1ExtBar := sq.side == -1 ? c1.hiBar : c1.loBar
+        rc.c1Level := sq.side == -1 ? c1.h : c1.l
+        rc.c1Hi := c1.h
+        rc.c1Lo := c1.l
+        rc.c2StartBar := c2.startBar
+        rc.c2StartTime := c2.startTime
+        rc.c2Open := c2.o
+        rc.c2Wick := sq.side == -1 ? c2.h : c2.l
+        rc.c2ExtBar := sq.side == -1 ? c2.hiBar : c2.loBar
+        rc.twoSided := sq.twoSided
+        rc.maxPhase := math.max(rc.maxPhase, sq.phase)
+        rc.alive := true
+        rc.c2Close := c2.c
+        rc.c2Rng := c2.h - c2.l
+        if not na(rc.cisdBar) and rc.cisdBar <= rc.c2ExtBar
+            rc.cisdBar := na
+            rc.cisdStartBar := na
+            rc.cisdLevel := na
+            rc.cisdTime := na
+            rc.cisdBrokeT := na
+        for k = 0 to 2
+            int mb = rc.mcBar.get(k)
+            if not na(mb) and mb <= rc.c2ExtBar
+                rc.mcBar.set(k, na)
+                rc.mcStart.set(k, na)
+                rc.mcLvl.set(k, na)
+        if sq.phase >= 3
+            PoCandle c3 = lane.cs.get(sq.i2 + 1)
+            rc.c3StartBar := c3.startBar
+            rc.c3StartTime := c3.startTime
+            rc.c3Open := c3.o
+            rc.c3Wick := sq.side == -1 ? c3.h : c3.l
+            rc.c3Close := c3.c
+            rc.c3Rng := c3.h - c3.l
+        if sq.phase >= 4
+            PoCandle c4 = lane.cs.get(sq.i2 + 2)
+            rc.c4StartTime := c4.startTime
+        rc.psp := poPspFlag(c2)
+    if poRecs.size() > 0
+        for i = 0 to poRecs.size() - 1
+            PoRec r1 = poRecs.get(i)
+            if r1.side == sq.side
+                bool nowAlive = sq.alive and r1.c2StartBar == curC2
+                if r1.alive and not nowAlive
+                    r1.endTime := time
+                r1.alive := nowAlive
+    lane
+
+poOtherSideAlive(PoRec rc) =>
+    bool res = false
+    if poRecs.size() > 0
+        for i = 0 to poRecs.size() - 1
+            PoRec o = poRecs.get(i)
+            if o.side == -rc.side and o.c2StartBar == rc.c2StartBar and o.alive
+                res := true
+    res
+
+PoSeq poSeqBear = PoSeq.new(-1, na, na, 0, false, false, false)
+PoSeq poSeqBull = PoSeq.new(1, na, na, 0, false, false, false)
+if poCalc and poSrcOk
+    poSeqBear := poEvalSide(poSrcLane.cs, -1)
+    poSeqBull := poEvalSide(poSrcLane.cs, 1)
+    // v4.5 FIX B: phantom-C2 filter. When both sides are alive on DIFFERENT C2 candles and the newer
+    // C2 is just the C3 / C4 candle (i2 + 1 or i2 + 2) of the still-live older sequence, it is the
+    // expansion of that sequence, not a new manipulation. Drop it. A real reversal shows up once the
+    // older sequence has died (C3 closed against it). Same-candle xC2 (equal i2) is untouched.
+    if poSeqBear.alive and poSeqBull.alive and poSeqBear.i2 != poSeqBull.i2
+        PoSeq poHiSq = poSeqBear.i2 > poSeqBull.i2 ? poSeqBear : poSeqBull
+        PoSeq poLoSq = poSeqBear.i2 > poSeqBull.i2 ? poSeqBull : poSeqBear
+        if poHiSq.i2 <= poLoSq.i2 + 2
+            poHiSq.alive := false
+    poSyncRecs(poSrcLane, poSeqBear)
+    poSyncRecs(poSrcLane, poSeqBull)
+else if poCalc
+    // No usable profile lane (TF unavailable / switched away): nothing can be live, so no sequence
+    // may keep alive=true and stretch its boxes to the right edge forever.
+    if poRecs.size() > 0
+        for i = 0 to poRecs.size() - 1
+            PoRec rz = poRecs.get(i)
+            if rz.alive
+                rz.endTime := time
+            rz.alive := false
+
+// ── SMT / SSMT ───────────────────────────────────────────────────────────────
+var array<PoLane> poSmtLanes = array.new<PoLane>()
+
+poSmtTfOk(string tf) =>
+    bool ok = poTfValid(tf)
+    if ok
+        float ratio = timeframe.in_seconds(tf) / timeframe.in_seconds()
+        ok := ratio >= poSmtMinRatio and ratio <= poSmtMaxRatio
+    ok
+
+// 90m, 4H and 6H follow the same fixed anchor as the HTF lanes, so SSMT quarters match the profile quarters.
+int poBk90  = poBucket("90")
+int poBk240 = poBucket("240")
+int poBk360 = poBucket("360")
+
+bool poSmtOk1 = bandzModulePo3 and po3ShowSmt and poSt1On and poSmtTfOk("15")
+bool poSmtNew1 = poSmtOk1 and timeframe.change("15")
+bool poSmtOk2 = bandzModulePo3 and po3ShowSmt and poSt2On and poSmtTfOk("30")
+bool poSmtNew2 = poSmtOk2 and timeframe.change("30")
+bool poSmtOk3 = bandzModulePo3 and po3ShowSmt and poSt3On and poSmtTfOk("60")
+bool poSmtNew3 = poSmtOk3 and timeframe.change("60")
+bool poSmtOk4 = bandzModulePo3 and po3ShowSmt and poSt4On and poSmtTfOk("90")
+bool poSmtNew4 = poSmtOk4 and (poAnch ? (na(poBk90[1]) or poBk90 != poBk90[1]) : timeframe.change("90"))
+bool poSmtOk5 = bandzModulePo3 and po3ShowSmt and poSt5On and poSmtTfOk("240")
+bool poSmtNew5 = poSmtOk5 and (poAnch ? (na(poBk240[1]) or poBk240 != poBk240[1]) : timeframe.change("240"))
+bool poSmtOk6 = bandzModulePo3 and po3ShowSmt and poSt6On and poSmtTfOk("360")
+bool poSmtNew6 = poSmtOk6 and (poAnch ? (na(poBk360[1]) or poBk360 != poBk360[1]) : timeframe.change("360"))
+bool poSmtOk7 = bandzModulePo3 and po3ShowSmt and poSt7On and poSmtTfOk("1D")
+bool poSmtNew7 = poSmtOk7 and timeframe.change("1D")
+
+if poSmtLanes.size() == 0
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "15", poSmtLookback + 2, poSmtOk1))
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "30", poSmtLookback + 2, poSmtOk2))
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "60", poSmtLookback + 2, poSmtOk3))
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "90", poSmtLookback + 2, poSmtOk4))
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "240", poSmtLookback + 2, poSmtOk5))
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "360", poSmtLookback + 2, poSmtOk6))
+    poSmtLanes.push(PoLane.new(array.new<PoCandle>(), "1D", poSmtLookback + 2, poSmtOk7))
+
+if poCalc
+    poIngest(poSmtLanes.get(0), poSmtNew1)
+    poIngest(poSmtLanes.get(1), poSmtNew2)
+    poIngest(poSmtLanes.get(2), poSmtNew3)
+    poIngest(poSmtLanes.get(3), poSmtNew4)
+    poIngest(poSmtLanes.get(4), poSmtNew5)
+    poIngest(poSmtLanes.get(5), poSmtNew6)
+    poIngest(poSmtLanes.get(6), poSmtNew7)
+
+poFindSmt(int laneNo, int dir, int refStart, int curStart, bool isSsmt) =>
+    int idx = -1
+    if poSmtMarks.size() > 0
+        for i = 0 to poSmtMarks.size() - 1
+            PoSmt m0 = poSmtMarks.get(i)
+            if m0.lane == laneNo and m0.dir == dir and m0.refStart == refStart and m0.curStart == curStart and m0.ssmt == isSsmt
+                idx := i
+    idx
+
+poUpsertSmt(int laneNo, int dir, int refStart, int curStart, float refLevel, float curLevel, int refBar, int curBar, string who, bool isSsmt) =>
+    int idx = poFindSmt(laneNo, dir, refStart, curStart, isSsmt)
+    PoSmt m = na
+    if idx >= 0
+        m := poSmtMarks.get(idx)
+    else
+        m := PoSmt.new()
+        m.lane := laneNo
+        m.dir := dir
+        m.refStart := refStart
+        m.curStart := curStart
+        m.madeBar := bar_index
+        poSmtMarks.push(m)
+    m.refLevel := refLevel
+    m.curLevel := curLevel
+    m.refBar := refBar
+    m.curBar := curBar
+    m.who := who
+    m.ssmt := isSsmt
+    m.seenBar := bar_index
+    idx
+
+poScanSmtDir(PoLane ln, int no, bool qLane, int dir) =>
+    int n = ln.cs.size()
+    int found = 0
+    array<float> usedLv = array.new_float(0)
+    PoCandle cur = ln.cs.get(n - 1)
+    int rFirst = n - 2
+    int rLast = math.max(0, n - 1 - poSmtLookback)
+    for r = rFirst to rLast
+        PoCandle rf = ln.cs.get(r)
+        if found < 2
+            bool untouched = true
+            if r < n - 2
+                for j = r + 1 to n - 2
+                    PoCandle mj = ln.cs.get(j)
+                    if dir == -1 and mj.h >= rf.h
+                        untouched := false
+                    if dir == 1 and mj.l <= rf.l
+                        untouched := false
+            if untouched
+                bool chartTook = dir == -1 ? cur.h > rf.h : cur.l < rf.l
+                int valid = 0
+                int diverging = 0
+                string who = ""
+                for k = 0 to 3
+                    if poAOn.get(k) and rf.ok.get(k) and cur.ok.get(k)
+                        valid += 1
+                        bool inv = poAInv.get(k)
+                        bool assetTook = false
+                        if dir == -1
+                            assetTook := inv ? cur.al.get(k) < rf.al.get(k) : cur.ah.get(k) > rf.ah.get(k)
+                        else
+                            assetTook := inv ? cur.ah.get(k) > rf.ah.get(k) : cur.al.get(k) < rf.al.get(k)
+                        if assetTook != chartTook
+                            diverging += 1
+                            who := who + (str.length(who) > 0 ? "+" : "") + poALogos.get(k)
+                bool diverged = valid > 0 and (poSmtAll ? diverging == valid : diverging > 0)
+                float refLv = dir == -1 ? rf.h : rf.l
+                if diverged and not poLevelUsed(usedLv, refLv)
+                    found += 1
+                    usedLv.push(refLv)
+                    bool asSsmt = qLane and r == n - 2
+                    poUpsertSmt(no, dir, rf.startBar, cur.startBar, refLv, dir == -1 ? cur.h : cur.l, dir == -1 ? rf.hiBar : rf.loBar, dir == -1 ? cur.hiBar : cur.loBar, who, asSsmt)
+    found
+
+poScanLane(int no) =>
+    PoLane ln = poSmtLanes.get(no - 1)
+    if ln.active and ln.cs.size() >= 2
+        bool qLane = poSsmtOn and poIsQuarterTf(ln.tf)
+        poScanSmtDir(ln, no, qLane, -1)
+        poScanSmtDir(ln, no, qLane, 1)
+    0
+
+poCleanSmt() =>
+    int i = poSmtMarks.size() - 1
+    while i >= 0
+        PoSmt m = poSmtMarks.get(i)
+        PoLane ln = poSmtLanes.get(m.lane - 1)
+        int n = ln.cs.size()
+        bool drop = false
+        if n == 0 or not ln.active
+            drop := true
+        else
+            PoCandle lastC = ln.cs.get(n - 1)
+            int oldestStart = ln.cs.get(math.max(0, n - ln.count)).startBar
+            bool live = m.curStart == lastC.startBar
+            float hiEnd = math.max(m.refLevel, m.curLevel)
+            float loEnd = math.min(m.refLevel, m.curLevel)
+            if m.refStart < oldestStart
+                drop := true
+            else if live and m.seenBar != bar_index
+                drop := true
+            else if not live and m.dir == -1 and high > hiEnd
+                drop := true
+            else if not live and m.dir == 1 and low < loEnd
+                drop := true
+        if drop
+            poSmtMarks.remove(i)
+        i -= 1
+    int nd = poSmtMarks.size()
+    if nd > 1
+        array<bool> dup = array.new_bool(nd, false)
+        for a = 0 to nd - 1
+            PoSmt ma = poSmtMarks.get(a)
+            for b = 0 to nd - 1
+                if b != a
+                    PoSmt mb = poSmtMarks.get(b)
+                    if mb.dir == ma.dir and mb.refBar == ma.refBar and mb.curBar == ma.curBar and (mb.lane > ma.lane or (mb.lane == ma.lane and mb.ssmt and not ma.ssmt))
+                        dup.set(a, true)
+        for a = nd - 1 to 0
+            if dup.get(a)
+                poSmtMarks.remove(a)
+    array<int> cnt = array.new_int(16, 0)
+    int k = poSmtMarks.size() - 1
+    while k >= 0
+        PoSmt mk = poSmtMarks.get(k)
+        int slotK = mk.lane + (mk.ssmt ? 8 : 0)
+        cnt.set(slotK, cnt.get(slotK) + 1)
+        if cnt.get(slotK) > (mk.ssmt ? 2 : poSmtCycles)
+            poSmtMarks.remove(k)
+        k -= 1
+    while poSmtMarks.size() > 50
+        poSmtMarks.shift()
+    0
+
+poSmtLatestDir(bool wantSsmt) =>
+    int d = 0
+    int best = -1
+    if poSmtMarks.size() > 0
+        for i = 0 to poSmtMarks.size() - 1
+            PoSmt m = poSmtMarks.get(i)
+            if m.ssmt == wantSsmt and m.curBar > best
+                best := m.curBar
+                d := m.dir
+    d
+
+poSmtLatestLane(bool wantSsmt) =>
+    int ln = 0
+    int best = -1
+    if poSmtMarks.size() > 0
+        for i = 0 to poSmtMarks.size() - 1
+            PoSmt m = poSmtMarks.get(i)
+            if m.ssmt == wantSsmt and m.curBar > best
+                best := m.curBar
+                ln := m.lane
+    ln
+
+int poSsmtDir = 0
+int poSmtDirLive = 0
+int poSmtLaneLive = 0
+if poCalc and po3ShowSmt
+    poScanLane(1)
+    poScanLane(2)
+    poScanLane(3)
+    poScanLane(4)
+    poScanLane(5)
+    poScanLane(6)
+    poScanLane(7)
+    poCleanSmt()
+    poSsmtDir := poSmtLatestDir(true)
+    poSmtDirLive := poSmtLatestDir(false)
+    poSmtLaneLive := poSmtLatestLane(false)
+else if poSmtMarks.size() > 0
+    poSmtMarks.clear()
+
+// ── Direction filters ────────────────────────────────────────────────────────
+poAllowDir(int dir) =>
+    bool ok = true
+    if poSsmtBias == "Bullish only"
+        ok := dir == 1
+    else if poSsmtBias == "Bearish only"
+        ok := dir == -1
+    else if poSsmtBias == "Auto-Filter"
+        ok := poSsmtDir == 0 or poSsmtDir == dir
+    ok
+
+poRecVisible(PoRec rc) =>
+    bool ok = true
+    if rc.side == -1 and poProfileBias == "Bullish only"
+        ok := false
+    if rc.side == 1 and poProfileBias == "Bearish only"
+        ok := false
+    if ok and rc.alive and not poAllowDir(rc.side)
+        ok := false
+    if ok and poPspOnly and not rc.psp
+        ok := false
+    if ok and rc.twoSided and poSeqGate == "Wait for xC2"
+        if rc.alive
+            ok := not poOtherSideAlive(rc)
+        else
+            ok := rc.maxPhase >= 4
+    ok
+
+bool   poBearVis = poSeqBear.alive and poProfileBias != "Bullish only" and poAllowDir(-1)
+bool   poBullVis = poSeqBull.alive and poProfileBias != "Bearish only" and poAllowDir(1)
+bool   poPending = false
+PoSeq  poDisp    = PoSeq.new(0, na, na, 0, false, false, false)
+if poBearVis and poBullVis
+    if poSeqBear.i2 == poSeqBull.i2
+        if poSeqGate == "Immediate"
+            poDisp := poSeqBear
+        else
+            poPending := true
+    else
+        poDisp := poSeqBear.i2 > poSeqBull.i2 ? poSeqBear : poSeqBull
+else if poBearVis
+    poDisp := poSeqBear
+else if poBullVis
+    poDisp := poSeqBull
+bool poDispPsp = poSrcOk and poDisp.side != 0 and po3ShowPsp and poPspFlag(poSrcLane.cs.get(poDisp.i2))
+
+// ── CISD ─────────────────────────────────────────────────────────────────────
+var float poBearRunFirst = na
+var float poBearRunLast  = na
+var int   poBearRunBar   = na
+var int   poBearRunLen   = 0
+var float poBullRunFirst = na
+var float poBullRunLast  = na
+var int   poBullRunBar   = na
+var int   poBullRunLen   = 0
+
+poCisdInvalidate() =>
+    int i = poCisds.size() - 1
+    while i >= 0
+        PoCisd cz = poCisds.get(i)
+        bool bad = cz.confirmBar != bar_index and (cz.bull ? close < cz.level : close > cz.level)
+        if bad
+            poCisds.remove(i)
+        i -= 1
+    0
+
+poCisdOnBar(bool bull) =>
+    bool hit = false
+    if poCisds.size() > 0
+        for i = 0 to poCisds.size() - 1
+            PoCisd cz = poCisds.get(i)
+            if cz.bull == bull and cz.confirmBar == bar_index
+                hit := true
+    hit
+
+poSpotZone(PoRec rc, int which) =>
+    float a = na
+    float b = na
+    if poTSpotMode == "Close → range %"
+        float cl = which == 3 ? rc.c2Close : rc.c3Close
+        float rg = which == 3 ? rc.c2Rng : rc.c3Rng
+        float pct = which == 3 ? poT50 : poT25
+        if not na(cl) and not na(rg)
+            a := cl
+            b := cl - rc.side * rg * pct / 100.0
+    else
+        // v4.4: the older open -> wick measure is now phase-anchored like the Close mode:
+        // C3 box = C2 open into the C2 sweep wick, C4 box = C3 open into the C3 wick.
+        float op = which == 3 ? rc.c2Open : rc.c3Open
+        float wk = which == 3 ? rc.c2Wick : rc.c3Wick
+        if not na(op) and not na(wk)
+            a := op
+            b := op + (wk - op) * (which == 3 ? poT50 : poT25) / 100.0
+    [math.max(a, b), math.min(a, b)]
+
+bool  poCisdNewBull = false
+bool  poCisdNewBear = false
+if poCalc
+    if close < open
+        if close[1] < open[1]
+            poBearRunLen += 1
+        else
+            poBearRunLen := 1
+            poBearRunFirst := open
+            poBearRunBar := bar_index
+        poBearRunLast := open
+    if close > open
+        if close[1] > open[1]
+            poBullRunLen += 1
+        else
+            poBullRunLen := 1
+            poBullRunFirst := open
+            poBullRunBar := bar_index
+        poBullRunLast := open
+    if poCisdFilterInv
+        poCisdInvalidate()
+    float poBearLvl = poCisdSens == "Sensitive" ? poBearRunLast : poBearRunFirst
+    if close > open and not na(poBearLvl) and poBearRunLen >= poCisdMinRun and close > poBearLvl and bar_index - poBearRunBar <= 60 and not poCisdOnBar(true)
+        PoCisd cb = PoCisd.new()
+        cb.bull := true
+        cb.startBar := poBearRunBar
+        cb.level := poBearLvl
+        cb.confirmBar := bar_index
+        poCisds.push(cb)
+        poCisdNewBull := true
+        poBearRunFirst := na
+        poBearRunLast := na
+        poBearRunLen := 0
+    float poBullLvl = poCisdSens == "Sensitive" ? poBullRunLast : poBullRunFirst
+    if close < open and not na(poBullLvl) and poBullRunLen >= poCisdMinRun and close < poBullLvl and bar_index - poBullRunBar <= 60 and not poCisdOnBar(false)
+        PoCisd cr = PoCisd.new()
+        cr.bull := false
+        cr.startBar := poBullRunBar
+        cr.level := poBullLvl
+        cr.confirmBar := bar_index
+        poCisds.push(cr)
+        poCisdNewBear := true
+        poBullRunFirst := na
+        poBullRunLast := na
+        poBullRunLen := 0
+    while poCisds.size() > poCisdMax
+        poCisds.shift()
+
+int poSeqSlot = poSeqCisdTf == "3m" and timeframe.in_seconds() < 180 ? 1 : poSeqCisdTf == "5m" and timeframe.in_seconds() < 300 ? 2 : 0
+
+// The signal block below decides when the CISD alert fires, so it works for chart CISD and
+// for 3m / 5m aggregated CISD alike.
+poLinkCisd(PoRec rc, int slot, int cBar, int cStart, float cLvl, int cTime) =>
+    if na(rc.mcBar.get(slot))
+        rc.mcBar.set(slot, cBar)
+        rc.mcStart.set(slot, cStart)
+        rc.mcLvl.set(slot, cLvl)
+    if slot == poSeqSlot and na(rc.cisdBar)
+        rc.cisdBar := cBar
+        rc.cisdStartBar := cStart
+        rc.cisdLevel := cLvl
+        rc.cisdTime := cTime
+        rc.cisdBrokeT := na
+    0
+
+if poCalc and (poCisdNewBull or poCisdNewBear) and poRecs.size() > 0
+    PoCisd nc = poCisds.last()
+    int ncSide = nc.bull ? 1 : -1
+    for i = 0 to poRecs.size() - 1
+        PoRec rc = poRecs.get(i)
+        if rc.alive and rc.side == ncSide and not na(rc.c2ExtBar) and bar_index > rc.c2ExtBar
+            poLinkCisd(rc, 0, bar_index, nc.startBar, nc.level, time)
+
+if poCalc and poRecs.size() > 0
+    for i = 0 to poRecs.size() - 1
+        PoRec rc = poRecs.get(i)
+        if not na(rc.cisdBar) and na(rc.cisdBrokeT) and bar_index > rc.cisdBar
+            if rc.side == 1 ? close < rc.cisdLevel : close > rc.cisdLevel
+                rc.cisdBrokeT := time
+
+if poCalc and poRecs.size() > 0
+    float srcSec = poSrcOk ? timeframe.in_seconds(poSrcLane.tf) : na
+    for i = 0 to poRecs.size() - 1
+        PoRec rc = poRecs.get(i)
+        if not rc.smt and rc.alive and not na(srcSec) and poSmtMarks.size() > 0
+            for j = 0 to poSmtMarks.size() - 1
+                PoSmt m = poSmtMarks.get(j)
+                bool inC2 = m.curBar >= rc.c2StartBar and (na(rc.c3StartBar) or m.curBar < rc.c3StartBar)
+                if m.dir == rc.side and inC2 and timeframe.in_seconds(poSmtLanes.get(m.lane - 1).tf) <= srcSec
+                    rc.smt := true
+        // "Easy and up" only (see the T-Spot filter tooltip): a close through the far side kills the box.
+        if poSpotStrict != "Open"
+            if rc.maxPhase >= 3 and not rc.spot3Dead and not na(rc.c3StartTime) and time >= rc.c3StartTime
+                [t3, b3] = poSpotZone(rc, 3)
+                if not na(t3) and (rc.side == 1 ? close < b3 : close > t3)
+                    rc.spot3Dead := true
+            if rc.maxPhase >= 4 and not rc.spot4Dead and not na(rc.c4StartTime) and time >= rc.c4StartTime
+                [t4, b4] = poSpotZone(rc, 4)
+                if not na(t4) and (rc.side == 1 ? close < b4 : close > t4)
+                    rc.spot4Dead := true
+        // v4: displacement. The T-Spot only counts after a bar CLOSED out of the zone in the sequence direction.
+        if barstate.isconfirmed
+            if rc.maxPhase >= 3 and na(rc.c3LeftBar) and not na(rc.c3StartTime) and time >= rc.c3StartTime
+                [l3t, l3b] = poSpotZone(rc, 3)
+                if not na(l3t) and (rc.side == 1 ? close > l3t : close < l3b)
+                    rc.c3LeftBar := bar_index
+            if rc.maxPhase >= 4 and na(rc.c4LeftBar) and not na(rc.c4StartTime) and time >= rc.c4StartTime
+                [l4t, l4b] = poSpotZone(rc, 4)
+                if not na(l4t) and (rc.side == 1 ? close > l4t : close < l4b)
+                    rc.c4LeftBar := bar_index
+
+poSpotOk(PoRec rc) =>
+    bool cisd = not na(rc.cisdBar)
+    bool ok = true
+    if poSpotStrict == "Easy"
+        ok := cisd or rc.smt
+    else if poSpotStrict == "Medium"
+        ok := cisd and rc.smt
+    else if poSpotStrict == "Hard"
+        ok := cisd and rc.smt and rc.psp
+    else if poSpotStrict == "Max"
+        float rng = rc.c1Hi - rc.c1Lo
+        float eq = (rc.c1Hi + rc.c1Lo) / 2.0
+        bool strong = rc.side == 1 ? rc.c2Close > eq : rc.c2Close < eq
+        float depth = rc.side == 1 ? rc.c1Lo - rc.c2Wick : rc.c2Wick - rc.c1Hi
+        bool deep = rng > 0 and depth >= rng * 0.1
+        ok := cisd and rc.smt and rc.psp and strong and deep and not rc.twoSided
+    if ok and poReqC2In and rc.maxPhase >= 3 and not na(rc.c2Close)
+        ok := rc.c2Close < rc.c1Hi and rc.c2Close > rc.c1Lo
+    if ok and poReqC3Dir and rc.maxPhase >= 4 and not na(rc.c3Close) and not na(rc.c2Close)
+        ok := rc.side == 1 ? rc.c3Close > rc.c2Close : rc.c3Close < rc.c2Close
+    ok
+
+// ── Order entry (Entry / SL / TP1 / TP2) ────────────────────────────────────
+type PoTrade
+    int    side
+    string kind
+    float  entry
+    float  sl
+    float  tp1
+    float  tp2
+    int    sigBar
+    int    sigTime
+    int    fillBar
+    int    fillTime
+    int    tp1Bar
+    int    endTime
+    int    status   // 0 pending, 1 open, 2 TP1 hit (runner at BE), 3 TP2, 4 BE after TP1, -1 SL, -2 cancelled
+    int    tp1Time
+    int    c2Bar    // key of the sequence (C2 start bar) this order belongs to
+    int    expT     // v4.6: entry valid until (time, ms)
+
+var array<PoTrade> poTrades = array.new<PoTrade>()
+
+poZoneEntry(int side, float top, float bot) =>
+    float e = (top + bot) / 2.0
+    if poOrdEntryMode == "Near edge"
+        e := side == 1 ? top : bot
+    else if poOrdEntryMode == "Far edge"
+        e := side == 1 ? bot : top
+    e
+
+// v4.6: close time (ms) of the HTF candle that contains time t, same NY anchor as the candle cutter
+poBucketCloseOf(int t, string tf) =>
+    float sec = timeframe.in_seconds(tf)
+    int res = na
+    if not na(sec) and not na(t)
+        if poAnch and sec < 86400
+            int lm  = timestamp("UTC", year(t, poTz), month(t, poTz), dayofmonth(t, poTz), hour(t, poTz), minute(t, poTz), 0)
+            int off = lm - (t - t % 60000)
+            int bk  = int(math.floor((lm - poAnchorH * 3600000) / (sec * 1000.0)))
+            res := int(poAnchorH * 3600000.0 + (bk + 1) * sec * 1000.0) - off
+        else
+            res := t + int(sec * 1000)
+    res
+
+// v4.6: entry valid until = earlier of (signal + "Pending expires" bars) and the close of the phase candle
+// the entry lives in (C3 entry: end of C3, C4 entry: end of C4, CISD before C3: end of C3).
+poOrdValidUntil(PoRec rc, string kind) =>
+    int secMs   = poSrcOk ? int(timeframe.in_seconds(poSrcLane.tf) * 1000) : 0
+    int byBars  = time + int(timeframe.in_seconds() * 1000) * poOrdExpire
+    int phaseEnd = na
+    if poSrcOk
+        if (kind == "C4" or rc.maxPhase >= 4) and not na(rc.c4StartTime)
+            phaseEnd := poBucketCloseOf(rc.c4StartTime, poSrcLane.tf)
+        else if rc.maxPhase >= 3 and not na(rc.c3StartTime)
+            phaseEnd := poBucketCloseOf(rc.c3StartTime, poSrcLane.tf)
+        else if not na(rc.c2StartTime)
+            phaseEnd := poBucketCloseOf(rc.c2StartTime, poSrcLane.tf) + secMs
+    na(phaseEnd) ? byBars : math.min(byBars, phaseEnd)
+
+// How many live / finished (not cancelled) orders this sequence already has.
+poOrdCount(int side, int c2Bar) =>
+    int cnt = 0
+    if poTrades.size() > 0
+        for i = 0 to poTrades.size() - 1
+            PoTrade q = poTrades.get(i)
+            if q.side == side and q.c2Bar == c2Bar and q.status != -2
+                cnt += 1
+    cnt
+
+poMakeTrade(PoRec rc, string kind, float entry0) =>
+    PoTrade t = na
+    if poOrdOn and not na(entry0) and not na(rc.c2Wick) and not na(rc.c2Rng) and poOrdCount(rc.side, rc.c2StartBar) < poOrdMaxPer
+        float slip  = poOrdSlip * syminfo.mintick
+        // CISD is a market order: filled slightly worse. T-Spot orders are limits: no entry slip.
+        float entry = kind == "CISD" ? entry0 + rc.side * slip : entry0
+        float buf   = rc.c2Rng * poOrdSlBuf / 100.0 + slip
+        float sl    = rc.side == 1 ? rc.c2Wick - buf : rc.c2Wick + buf
+        float risk  = (entry - sl) * rc.side
+        bool  riskOk = risk > syminfo.mintick * 2 and (poOrdMaxRiskPct <= 0 or risk <= entry * poOrdMaxRiskPct / 100.0)
+        if riskOk
+            float tp1 = entry + rc.side * risk * poOrdTp1Rr
+            if poOrdTp1Mode == "C1 midpoint"
+                float c1m = (rc.c1Hi + rc.c1Lo) / 2.0
+                if (c1m - entry) * rc.side > risk * 0.5
+                    tp1 := c1m
+            else if poOrdTp1Mode == "C1 opposite extreme"
+                float c1o = rc.side == 1 ? rc.c1Hi : rc.c1Lo
+                if (c1o - entry) * rc.side > risk * 0.5
+                    tp1 := c1o
+            float tp2 = entry + rc.side * risk * poOrdTp2Rr
+            // v4: full distribution = the far side of C1 (only when it lies beyond TP1)
+            if poOrdTp2Mode == "C1 opposite extreme"
+                float c1o2 = rc.side == 1 ? rc.c1Hi : rc.c1Lo
+                if (c1o2 - tp1) * rc.side > 0
+                    tp2 := c1o2
+            if (tp2 - tp1) * rc.side <= 0
+                tp2 := tp1 + rc.side * risk
+            if (tp1 - entry) * rc.side >= risk * poOrdMinRr
+                t := PoTrade.new(rc.side, kind, entry, sl, tp1, tp2, bar_index, time, na, na, na, na, 0, na, rc.c2StartBar, poOrdValidUntil(rc, kind))
+                poTrades.push(t)
+                while poTrades.size() > 300
+                    poTrades.shift()
+    t
+
+poOrdStep() =>
+    if poTrades.size() > 0
+        for i = 0 to poTrades.size() - 1
+            PoTrade t = poTrades.get(i)
+            bool bull = t.side == 1
+            if t.status == 0
+                // CISD = market, Near edge = fills on the touch that fired the signal, deeper limits only from the next bar
+                bool canFill = t.kind == "CISD" or poOrdEntryMode == "Near edge" or bar_index > t.sigBar
+                bool touch   = bull ? low <= t.entry : high >= t.entry
+                bool away    = bull ? high >= t.tp1 : low <= t.tp1
+                bool stale   = bar_index - t.sigBar > poOrdExpire
+                bool expired = not na(t.expT) and time >= t.expT   // v4.6: past the phase / expiry deadline
+                bool slGone  = bull ? low <= t.sl : high >= t.sl
+                bool recDead = true
+                int  rIdx    = poFindRec(t.side, t.c2Bar)
+                if rIdx >= 0
+                    PoRec rq = poRecs.get(rIdx)
+                    recDead := not rq.alive or (t.kind == "C3" and rq.spot3Dead) or (t.kind == "C4" and rq.spot4Dead)
+                // v4.5 FIX A2: an order whose sequence / T-Spot is dead can no longer fill (before, the fill
+                // won over the cancellation on the same bar). A CISD market order is filled on its own
+                // signal bar, which is the bar it is created on, so it is never blocked by recDead there:
+                // the order only exists because the sequence was alive when it was made.
+                bool cisdNow = t.kind == "CISD" and t.sigBar == bar_index
+                bool doFill  = canFill and touch and not expired and (cisdNow or not recDead)
+                if doFill
+                    t.status := 1
+                    t.fillBar := bar_index
+                    t.fillTime := time
+                    // conservative: a T-Spot limit that fills and also reaches the SL on the same bar counts as SL
+                    if t.kind != "CISD" and (bull ? low <= t.sl : high >= t.sl)
+                        t.status := -1
+                        t.endTime := time
+                else if away or stale or slGone or recDead or expired
+                    t.status := -2
+                    t.endTime := time
+            else if t.status == 1 and bar_index > t.fillBar
+                bool slHit = bull ? low <= t.sl : high >= t.sl
+                bool tp1Hit = bull ? high >= t.tp1 : low <= t.tp1
+                bool tp2Hit = bull ? high >= t.tp2 : low <= t.tp2
+                if slHit
+                    t.status := -1
+                    t.endTime := time
+                else if tp2Hit
+                    t.status := 3
+                    t.endTime := time
+                else if tp1Hit
+                    t.status := 2
+                    t.tp1Bar := bar_index
+                    t.tp1Time := time
+            else if t.status == 2 and bar_index > t.tp1Bar
+                bool beHit = bull ? low <= t.entry : high >= t.entry
+                bool tp2Hit2 = bull ? high >= t.tp2 : low <= t.tp2
+                if beHit
+                    t.status := 4
+                    t.endTime := time
+                else if tp2Hit2
+                    t.status := 3
+                    t.endTime := time
+    0
+
+poOrdStatusTxt(PoTrade t) =>
+    t.status == 0 ? "pending" : t.status == 1 ? "open" : t.status == 2 ? "TP1 ✓ · runner at BE" : t.status == 3 ? "TP2 ✓" : t.status == 4 ? "TP1 ✓ · closed at BE" : t.status == -1 ? "SL ✗" : "cancelled"
+
+poOrdText(PoTrade t) =>
+    string s = ""
+    if not na(t)
+        s := " | Entry " + str.tostring(t.entry, format.mintick) + " SL " + str.tostring(t.sl, format.mintick) + " TP1 " + str.tostring(t.tp1, format.mintick) + " TP2 " + str.tostring(t.tp2, format.mintick) + (na(t.expT) ? "" : " | valid until " + str.format_time(t.expT, "HH:mm", poTz))
+    s
+
+// Stats over the stored orders (computed on demand, so nothing is double counted in realtime).
+// Returns [closed, sl, be, tp2, tp1Hits, runners, open, netR]
+poOrdStats() =>
+    int   closedN = 0
+    int   slN = 0
+    int   beN = 0
+    int   tp2N = 0
+    int   tp1N = 0
+    int   runN = 0
+    int   openN = 0
+    float netR = 0.0
+    float p = poOrdPartial / 100.0
+    if poTrades.size() > 0
+        for i = 0 to poTrades.size() - 1
+            PoTrade t = poTrades.get(i)
+            float risk = math.abs(t.entry - t.sl)
+            float rr1 = risk > 0 ? math.abs(t.tp1 - t.entry) / risk : 0.0
+            float rr2 = risk > 0 ? math.abs(t.tp2 - t.entry) / risk : 0.0
+            if t.status == 0 or t.status == 1 or t.status == 2
+                openN += 1
+            if t.status == 2
+                runN += 1
+                tp1N += 1
+            else if t.status == -1
+                closedN += 1
+                slN += 1
+                netR -= 1.0
+            else if t.status == 4
+                closedN += 1
+                beN += 1
+                tp1N += 1
+                netR += p * rr1
+            else if t.status == 3
+                closedN += 1
+                tp2N += 1
+                tp1N += 1
+                netR += p * rr1 + (1.0 - p) * rr2
+    [closedN, slN, beN, tp2N, tp1N, runN, openN, netR]
+
+// ── Entry signal state + detection ──────────────────────────────────────────
+// varip so the stored signal is NOT rolled back on every realtime tick.
+varip int   poSigCisdBar   = na
+varip int   poSigCisdSide  = 0
+varip float poSigCisdLvl   = na
+varip int   poSigC3Bar     = na
+varip int   poSigC3Side    = 0
+varip float poSigC3Top     = na
+varip float poSigC3Bot     = na
+varip int   poSigC4Bar     = na
+varip int   poSigC4Side    = 0
+varip float poSigC4Top     = na
+varip float poSigC4Bot     = na
+
+bool poFireCisd    = false
+bool poFireCisdOrd = false
+bool poFireC3      = false
+bool poFireC4      = false
+PoTrade poNewCisdTrade = na
+PoTrade poNewCisdOrd   = na
+PoTrade poNewC3Trade   = na
+PoTrade poNewC4Trade   = na
+
+// CISD order readiness: signal already fired, CISD still intact, sequence alive and visible,
+// (optional) C2 closed = C3 open, inside the order window, and (optional) passing the T-Spot filter.
+poCisdOrdReady(PoRec rc) =>
+    bool ok = poOrdCisd and rc.alertCisd and not rc.cisdTried and na(rc.cisdBrokeT) and rc.alive and not na(rc.cisdBar)
+    if ok
+        ok := poRecVisible(rc)
+    if ok
+        if poOrdCisdWait
+            ok := rc.maxPhase >= 3 and not na(rc.c3StartBar) and bar_index - math.max(rc.c3StartBar, rc.cisdBar) <= poOrdLate
+        else
+            ok := bar_index - rc.cisdBar <= poOrdLate
+    if ok and poOrdGate
+        ok := poSpotOk(rc)
+    ok
+
+// CISD signal on a visible live sequence (first sequence CISD per record).
+// Fires once per record as soon as cisdBar exists and is fresh (<= 2 bars old), so 3m / 5m CISD
+// (linked one bar late) is caught as well. Only on a confirmed bar close (no intrabar repaint).
+// The CISD ORDER is placed by poCisdOrdReady (may be later than the signal, see inputs).
+// v4.5: the CISD signal also needs a LIVE sequence (rc.alive).
+if poCalc and poRecs.size() > 0
+    for i = 0 to poRecs.size() - 1
+        PoRec rc = poRecs.get(i)
+        bool sigHere = false
+        if barstate.isconfirmed and rc.alive and not na(rc.cisdBar) and not rc.alertCisd and bar_index - rc.cisdBar <= 2 and poRecVisible(rc)
+            rc.alertCisd  := true
+            poSigCisdBar  := time
+            poSigCisdSide := rc.side
+            poSigCisdLvl  := rc.cisdLevel
+            poFireCisd    := true
+            sigHere       := true
+        if barstate.isconfirmed and poCisdOrdReady(rc)
+            rc.cisdTried := true
+            PoTrade tn = poMakeTrade(rc, "CISD", close)
+            if not na(tn)
+                if sigHere
+                    poNewCisdTrade := tn
+                else
+                    poNewCisdOrd := tn
+                    poFireCisdOrd := true
+
+// C3 / C4 T-Spot touches on visible sequences that pass the T-Spot filter.
+// v4: the touch only counts as a RETRACE after displacement (a bar closed out of the zone first),
+// and the C3 entry only exists while the sequence is still in C3 (maxPhase == 3).
+// v4.5 FIX A: the sequence must be ALIVE. A failed C3 / finished C4 can no longer fire a stale signal.
+bool poConfOk = not poOrdC34Conf or barstate.isconfirmed
+if poCalc and poRecs.size() > 0 and poConfOk
+    for i = 0 to poRecs.size() - 1
+        PoRec rc = poRecs.get(i)
+        if rc.alive and poRecVisible(rc) and poSpotOk(rc)
+            if rc.maxPhase == 3 and not rc.alertC3 and not rc.spot3Dead and not na(rc.c3StartTime) and time >= rc.c3StartTime and (not poReqLeave or (not na(rc.c3LeftBar) and bar_index > rc.c3LeftBar))
+                [t3, b3] = poSpotZone(rc, 3)
+                if not na(t3) and low <= t3 and high >= b3
+                    rc.alertC3   := true
+                    rc.sigC3T    := time
+                    poSigC3Bar   := time
+                    poSigC3Side  := rc.side
+                    poSigC3Top   := t3
+                    poSigC3Bot   := b3
+                    poFireC3     := true
+                    if poOrdC3
+                        poNewC3Trade := poMakeTrade(rc, "C3", poZoneEntry(rc.side, t3, b3))
+            if rc.maxPhase >= 4 and not rc.alertC4 and not rc.spot4Dead and not na(rc.c4StartTime) and time >= rc.c4StartTime and (not poReqLeave or (not na(rc.c4LeftBar) and bar_index > rc.c4LeftBar))
+                [t4, b4] = poSpotZone(rc, 4)
+                if not na(t4) and low <= t4 and high >= b4
+                    rc.alertC4   := true
+                    rc.sigC4T    := time
+                    poSigC4Bar   := time
+                    poSigC4Side  := rc.side
+                    poSigC4Top   := t4
+                    poSigC4Bot   := b4
+                    poFireC4     := true
+                    if poOrdC4
+                        poNewC4Trade := poMakeTrade(rc, "C4", poZoneEntry(rc.side, t4, b4))
+
+// Order state machine (fill / SL / TP1 / TP2 / break-even)
+if poCalc
+    poOrdStep()
+
+// ── 3m / 5m CISD ─────────────────────────────────────────────────────────────
+type PoAgg
+    string tf
+    float  o
+    float  h
+    float  l
+    float  c
+    int    startBar
+    bool   has
+    int    doneBar
+    int    prevDir
+    float  bearFirst
+    float  bearLast
+    int    bearBar
+    int    bearLen
+    float  bullFirst
+    float  bullLast
+    int    bullBar
+    int    bullLen
+    float  hitLvl
+    int    hitStart
+
+var PoAgg poAgg3 = PoAgg.new("3", na, na, na, na, na, false, na, 0, na, na, na, 0, na, na, na, 0, na, na)
+var PoAgg poAgg5 = PoAgg.new("5", na, na, na, na, na, false, na, 0, na, na, na, 0, na, na, na, 0, na, na)
+
+poAggStep(PoAgg g, bool isNew) =>
+    int res = 0
+    if isNew and g.has and (na(g.doneBar) or g.doneBar != bar_index)
+        g.doneBar := bar_index
+        int d = poDir(g.o, g.c)
+        if d == -1
+            if g.prevDir == -1
+                g.bearLen += 1
+            else
+                g.bearLen := 1
+                g.bearFirst := g.o
+                g.bearBar := g.startBar
+            g.bearLast := g.o
+        if d == 1
+            if g.prevDir == 1
+                g.bullLen += 1
+            else
+                g.bullLen := 1
+                g.bullFirst := g.o
+                g.bullBar := g.startBar
+            g.bullLast := g.o
+        float bearLvl = poCisdSens == "Sensitive" ? g.bearLast : g.bearFirst
+        float bullLvl = poCisdSens == "Sensitive" ? g.bullLast : g.bullFirst
+        if d == 1 and not na(bearLvl) and g.bearLen >= poCisdMinRun and g.c > bearLvl and bar_index - g.bearBar <= 600
+            res := 1
+            g.hitLvl := bearLvl
+            g.hitStart := g.bearBar
+            g.bearFirst := na
+            g.bearLast := na
+            g.bearLen := 0
+        else if d == -1 and not na(bullLvl) and g.bullLen >= poCisdMinRun and g.c < bullLvl and bar_index - g.bullBar <= 600
+            res := -1
+            g.hitLvl := bullLvl
+            g.hitStart := g.bullBar
+            g.bullFirst := na
+            g.bullLast := na
+            g.bullLen := 0
+        g.prevDir := d
+    if isNew
+        g.o := open
+        g.h := high
+        g.l := low
+        g.c := close
+        g.startBar := bar_index
+        g.has := true
+    else if g.has
+        g.h := math.max(g.h, high)
+        g.l := math.min(g.l, low)
+        g.c := close
+    res
+
+poAggLink(PoAgg g, int dir, int slot) =>
+    if dir != 0 and poRecs.size() > 0
+        for i = 0 to poRecs.size() - 1
+            PoRec rc = poRecs.get(i)
+            if rc.alive and rc.side == dir and not na(rc.c2ExtBar) and bar_index - 1 > rc.c2ExtBar
+                poLinkCisd(rc, slot, bar_index - 1, g.hitStart, g.hitLvl, time[1])
+    0
+
+bool poAgg3On = poCalc and timeframe.isintraday and timeframe.in_seconds() < 180
+bool poAgg5On = poCalc and timeframe.isintraday and timeframe.in_seconds() < 300
+bool poAgg3New = poAgg3On and timeframe.change("3")
+bool poAgg5New = poAgg5On and timeframe.change("5")
+if poAgg3On
+    poAggLink(poAgg3, poAggStep(poAgg3, poAgg3New), 1)
+if poAgg5On
+    poAggLink(poAgg5, poAggStep(poAgg5, poAgg5New), 2)
+
+// ── Entry FVGs ───────────────────────────────────────────────────────────────
+type PoFvg
+    int   t1
+    float top
+    float bot
+    bool  bull
+    int   endT
+    bool  disp
+
+var array<PoFvg> poEFvgs = array.new<PoFvg>()
+
+poAddEFvg(int t1, float top, float bot, bool bull, bool disp) =>
+    bool dup = false
+    if poEFvgs.size() > 0
+        for i = 0 to poEFvgs.size() - 1
+            PoFvg f = poEFvgs.get(i)
+            if f.t1 == t1 and f.bull == bull
+                dup := true
+    if not dup
+        int lifeMs = int(timeframe.in_seconds(poEFvgLife) * 1000)
+        int curClose = time_close(poEFvgLife)
+        int endT = na(curClose) ? time + 2 * lifeMs : curClose + lifeMs
+        poEFvgs.push(PoFvg.new(t1, top, bot, bull, endT, disp))
+        while poEFvgs.size() > 20
+            poEFvgs.shift()
+    0
+
+if poCalc and po3ShowEFvg and bar_index > 3 and poRecs.size() > 0
+    bool fvgBull = low[1] > high[3]
+    bool fvgBear = high[1] < low[3]
+    if fvgBull or fvgBear
+        float fTop = fvgBull ? low[1] : low[3]
+        float fBot = fvgBull ? high[3] : high[1]
+        int   fSide = fvgBull ? 1 : -1
+        for i = 0 to poRecs.size() - 1
+            PoRec rc = poRecs.get(i)
+            if rc.alive and rc.side == fSide and not na(rc.c2ExtBar)
+                bool inMove = bar_index - 3 >= rc.c2ExtBar and (na(rc.cisdBar) or bar_index - 1 <= rc.cisdBar + 2)
+                if poEFvgDisp and not rc.dispFvg and inMove
+                    rc.dispFvg := true
+                    poAddEFvg(time[3], fTop, fBot, fvgBull, true)
+                if poEFvgSpot and rc.maxPhase >= 3 and poSpotOk(rc)
+                    int ph = rc.maxPhase >= 4 ? 4 : 3
+                    bool dead = ph == 4 ? rc.spot4Dead : rc.spot3Dead
+                    [zT, zB] = poSpotZone(rc, ph)
+                    if not dead and not na(zT) and fTop >= zB and fBot <= zT
+                        poAddEFvg(time[3], fTop, fBot, fvgBull, false)
+if poEFvgs.size() > 0
+    int ei = poEFvgs.size() - 1
+    while ei >= 0
+        if time >= poEFvgs.get(ei).endT
+            poEFvgs.remove(ei)
+        ei -= 1
+
+// ── Key levels ───────────────────────────────────────────────────────────────
+var float poDayHi    = na
+var float poDayLo    = na
+var int   poDayHiT   = na
+var int   poDayLoT   = na
+var float poPdh      = na
+var float poPdl      = na
+var int   poPdhT     = na
+var int   poPdlT     = na
+var float poDayOpen  = na
+var int   poDayOpenT = na
+var float poWkOpen   = na
+var int   poWkOpenT  = na
+bool poDayNew = timeframe.isintraday and timeframe.change("1D")
+bool poWkNew  = timeframe.isintraday and timeframe.change("1W")
+if poDayNew
+    poPdh := poDayHi
+    poPdhT := poDayHiT
+    poPdl := poDayLo
+    poPdlT := poDayLoT
+    poDayHi := high
+    poDayHiT := time
+    poDayLo := low
+    poDayLoT := time
+    poDayOpen := open
+    poDayOpenT := time
+else
+    if na(poDayHi) or high > poDayHi
+        poDayHi := high
+        poDayHiT := time
+    if na(poDayLo) or low < poDayLo
+        poDayLo := low
+        poDayLoT := time
+if poWkNew
+    poWkOpen := open
+    poWkOpenT := time
+
+poBarHas(string sess) =>
+    int hh = int(str.tonumber(str.substring(sess, 0, 2)))
+    int mm = int(str.tonumber(str.substring(sess, 2, 4)))
+    int ts = timestamp(poTz, year(time, poTz), month(time, poTz), dayofmonth(time, poTz), hh, mm)
+    not na(time_close) and time <= ts and ts < time_close
+
+// Auto custom opens per asset class (New York time)
+poOpenSessions(string cls) =>
+    cls == "crypto" ? array.from("0000-0001", "0300-0301", "0930-0931", "1000-1001", "2000-2001") : array.from("0000-0001", "0300-0301", "0800-0801", "0830-0831", "0930-0931")
+
+bool poCoUseAuto = poCoAuto and (poAutoCls == "crypto" or poAutoCls == "fx" or poAutoCls == "com")
+
+var array<float> poCoP = array.new_float(5, na)
+var array<int>   poCoT = array.new_int(5, na)
+array<string> poCoSess = poCoUseAuto ? poOpenSessions(poAutoCls) : array.from(poCo1, poCo2, poCo3, poCo4, poCo5)
+array<bool>   poCoOn   = poCoUseAuto ? array.from(true, true, true, true, true) : array.from(poCo1On, poCo2On, poCo3On, poCo4On, poCo5On)
+array<color>  poCoCol  = array.from(poCo1Col, poCo2Col, poCo3Col, poCo4Col, poCo5Col)
+if timeframe.isintraday and timeframe.in_seconds() <= 3600
+    for k = 0 to 4
+        if poDayNew
+            poCoP.set(k, na)
+            poCoT.set(k, na)
+        if poCoOn.get(k) and poBarHas(poCoSess.get(k))
+            poCoP.set(k, open)
+            poCoT.set(k, time)
+
+// ── HTF opens ────────────────────────────────────────────────────────────────
+var int   poSrcOpenBar   = na
+var int   poSrcOpenTime  = na
+var float poSrcOpenPrice = na
+if poCalc and poSrcOk and poSrcNew
+    poSrcOpenBar := bar_index
+    poSrcOpenTime := time
+    poSrcOpenPrice := open
+
+if poCalc and (poVOpenOwn or poSrcOk) and poVOpenNew and (poOpens.size() == 0 or poOpens.last().bar != bar_index)
+    PoOpen opn = PoOpen.new()
+    opn.bar := bar_index
+    opn.time := time
+    opn.price := open
+    poOpens.push(opn)
+    while poOpens.size() > poVOpenKeep + 1
+        poOpens.shift()
+
+// ── Rendering ────────────────────────────────────────────────────────────────
+color poNoBorder = color.new(color.white, 100)
+
+var table poHdr = table.new(position.top_center, 1, 5)
+var table poPnl = poChecklist ? table.new(position.middle_right, 2, 7) : na
+var table poSigTbl = poShowSigPanel ? table.new(position.bottom_right, 2, 12, border_width = 1,
+     frame_color = color.new(color.gray, 55), frame_width = 1, bgcolor = color.new(color.black, 15)) : na
+
+poClearAll() =>
+    while poBoxes.size() > 0
+        box.delete(poBoxes.pop())
+    while poLines.size() > 0
+        line.delete(poLines.pop())
+    while poLabels.size() > 0
+        label.delete(poLabels.pop())
+    0
+
+poBoxI(int l, float t, int r, float b, color bg, color bd, int bw) =>
+    box bx = box.new(l, t, r, b, border_color = bd, border_width = bw, bgcolor = bg, xloc = xloc.bar_index)
+    poBoxes.push(bx)
+    bx
+
+poBoxT(int l, float t, int r, float b, color bg, color bd, int bw) =>
+    box bx = box.new(l, t, r, b, border_color = bd, border_width = bw, bgcolor = bg, xloc = xloc.bar_time)
+    poBoxes.push(bx)
+    bx
+
+poLineI(int x1, float y1, int x2, float y2, color c, string sty, int w) =>
+    line ln = line.new(x1, y1, x2, y2, xloc = xloc.bar_index, color = c, style = sty, width = w)
+    poLines.push(ln)
+    ln
+
+poLineT(int x1, float y1, int x2, float y2, color c, string sty, int w) =>
+    line ln = line.new(x1, y1, x2, y2, xloc = xloc.bar_time, color = c, style = sty, width = w)
+    poLines.push(ln)
+    ln
+
+poLabelI(int x, float y, string t, string sty, color tc, string sz) =>
+    label lb = label.new(x, y, t, xloc = xloc.bar_index, color = color.new(color.white, 100), style = sty, textcolor = tc, size = sz)
+    poLabels.push(lb)
+    lb
+
+poLabelT(int x, float y, string t, string sty, color tc, string sz) =>
+    label lb = label.new(x, y, t, xloc = xloc.bar_time, color = color.new(color.white, 100), style = sty, textcolor = tc, size = sz)
+    poLabels.push(lb)
+    lb
+
+poCandleLeft(int start, int count, int total, int idx, int slot) =>
+    bar_index + start + (count - total + idx) * slot
+
+poSmtColor(PoSmt m) =>
+    color.new(m.dir == -1 ? poSmtBearCol : poSmtBullCol, 100 - poSmtOpacity)
+
+poDrawImbalances(PoLane ln, int start, int slot, int bw) =>
+    int n = ln.cs.size()
+    int drawn = 0
+    if n >= 2 and (poFvgOn or poViOn)
+        for idx = n - 1 to 1
+            PoCandle c = ln.cs.get(idx)
+            PoCandle p = ln.cs.get(idx - 1)
+            int kc = ln.count - n + idx
+            int kp = kc - 1
+            if kp >= 0 and drawn < 12
+                int lxp = bar_index + start + kp * slot
+                int mxp = lxp + int(bw / 2)
+                int rxc = bar_index + start + kc * slot + bw
+                if poFvgOn and idx >= 2
+                    PoCandle a = ln.cs.get(idx - 2)
+                    if c.l > a.h
+                        poBoxI(lxp, c.l, rxc + 1, a.h, poFvgCol, poNoBorder, 1)
+                        drawn += 1
+                    else if c.h < a.l
+                        poBoxI(lxp, a.l, rxc + 1, c.h, poFvgCol, poNoBorder, 1)
+                        drawn += 1
+                if poViOn
+                    float pTop = math.max(p.o, p.c)
+                    float pBot = math.min(p.o, p.c)
+                    float cTop = math.max(c.o, c.c)
+                    float cBot = math.min(c.o, c.c)
+                    if cBot > pTop and c.l <= p.h
+                        poBoxI(mxp, cBot, rxc, pTop, poViCol, poNoBorder, 1)
+                        drawn += 1
+                    else if cTop < pBot and c.h >= p.l
+                        poBoxI(mxp, pBot, rxc, cTop, poViCol, poNoBorder, 1)
+                        drawn += 1
+    drawn
+
+poParseLevels(string txt) =>
+    array<float> out = array.new_float(0)
+    array<string> parts = str.split(str.replace_all(txt, " ", ""), ",")
+    if parts.size() > 0
+        for i = 0 to parts.size() - 1
+            float v = str.tonumber(parts.get(i))
+            if not na(v)
+                out.push(v)
+    out
+
+// Phase tag: C1 ACC / C2 MANIP / C3 DIST / C4 CONT (names can be switched off)
+poPhaseTag(string base) =>
+    string nm = base == "C1" ? "ACC" : base == "C3" ? "DIST" : base == "C4" ? "CONT" : "MANIP"
+    poPhaseNames ? base + " · " + nm : base
+
+// ── Phase candle timer helpers (v4.2) ────────────────────────────────────────
+// ms -> "mm:ss" or "h:mm:ss"
+poFmtDur(int ms) =>
+    int totalS = int(math.floor(math.max(ms, 0) / 1000.0))
+    int hrs  = int(math.floor(totalS / 3600.0))
+    int mins = int(math.floor((totalS % 3600) / 60.0))
+    int secs = totalS % 60
+    string mm = mins < 10 ? "0" + str.tostring(mins) : str.tostring(mins)
+    string ss = secs < 10 ? "0" + str.tostring(secs) : str.tostring(secs)
+    hrs > 0 ? str.tostring(hrs) + ":" + mm + ":" + ss : mm + ":" + ss
+
+// Time left (ms) of the live candle of the profile lane, using the same NY-anchored bucket as the cutter.
+poSrcRemMs() =>
+    int bk = poSrcNo == 1 ? poBk1 : poSrcNo == 2 ? poBk2 : poBk3
+    [openT, closeT] = poHtfSpan(poSrcLane.tf, bk)
+    int rem = na
+    if poSrcOk and not na(closeT)
+        int nowT = barstate.isrealtime ? timenow : math.min(timenow, na(time_close) ? timenow : time_close)
+        rem := math.max(closeT - nowT, 0)
+    rem
+
+// Phase of the live profile candle: sequence phase, 2 while xC2 is pending, else 1 (accumulation)
+poLivePhase() =>
+    poDisp.side != 0 ? poDisp.phase : poPending ? 2 : 1
+
+// Returns [countdown text of the live candle, schedule of the following phases]
+poPhaseTimerInfo() =>
+    string remTxt = ""
+    string sched  = ""
+    int rem = poSrcRemMs()
+    if poPhaseTimer and poSrcOk and not na(rem)
+        int ph = poLivePhase()
+        int secMs = int(timeframe.in_seconds(poSrcLane.tf) * 1000)
+        remTxt := "⏱ " + poFmtDur(rem)
+        if ph < 4
+            for k = 1 to 4 - ph
+                sched := sched + (k > 1 ? "  |  " : "") + poPhaseTag("C" + str.tostring(ph + k)) + " in " + poFmtDur(rem + (k - 1) * secMs)
+    [remTxt, sched]
+
+poDrawRec(PoRec rc, int liveEnd, int tMax, bool newest) =>
+    bool bear = rc.side == -1
+    string lblStyle = bear ? label.style_label_down : label.style_label_up
+    if poSweepLine and not na(rc.c1ExtBar)
+        int xe = rc.maxPhase >= 3 and not na(rc.c3StartBar) ? rc.c3StartBar : bar_index
+        poLineI(rc.c1ExtBar, rc.c1Level, math.max(xe, rc.c1ExtBar + 1), rc.c1Level, poSweepCol, line.style_solid, poSweepW)
+    if poChartLabels and not na(rc.c1ExtBar) and not na(rc.c2ExtBar)
+        poLabelI(rc.c1ExtBar, rc.c1Level, poPhaseTag("C1"), lblStyle, poBadgeCol, poSize(poChartTxt))
+        string c2txt = poPhaseTag(rc.twoSided ? "xC2" : "C2") + (rc.psp and po3ShowPsp ? " PSP" : "")
+        poLabelI(rc.c2ExtBar, rc.c2Wick, c2txt, lblStyle, poAccent, poSize(poChartTxt))
+    color spotFill = poTSpotDir ? (bear ? poTSpotBear : poTSpotBull) : poTSpotFill
+    color spotEdge = poTSpotDir ? color.new(spotFill, 100) : poTSpotBorder
+    bool spotPass = poSpotOk(rc)
+    bool spotStale = poSpotStrict != "Open"
+    if poTSpot and spotPass and not (spotStale and rc.spot3Dead) and rc.maxPhase >= 3 and not na(rc.c3StartTime)
+        [top3, bot3] = poSpotZone(rc, 3)
+        int end3 = rc.maxPhase >= 4 and not na(rc.c4StartTime) ? rc.c4StartTime : rc.alive or na(rc.endTime) ? liveEnd : rc.endTime
+        end3 := math.min(end3, tMax)
+        bool keep3 = rc.maxPhase < 4 or poLeaveC3
+        if keep3 and not na(top3) and end3 > rc.c3StartTime
+            poBoxT(rc.c3StartTime, top3, end3, bot3, spotFill, spotEdge, 1)
+            if poChartLabels
+                poLabelT(end3, bear ? top3 : bot3, poPhaseTag("C3"), bear ? label.style_label_down : label.style_label_up, poBadgeCol, poSize(poChartTxt))
+    if poTSpot and spotPass and not (spotStale and rc.spot4Dead) and rc.maxPhase >= 4 and not na(rc.c4StartTime)
+        [top4, bot4] = poSpotZone(rc, 4)
+        int end4 = rc.alive or na(rc.endTime) ? liveEnd : rc.endTime
+        end4 := math.min(end4, tMax)
+        if not na(top4) and end4 > rc.c4StartTime
+            poBoxT(rc.c4StartTime, top4, end4, bot4, spotFill, spotEdge, 1)
+            if poChartLabels
+                poLabelT(end4, bear ? top4 : bot4, poPhaseTag("C4"), bear ? label.style_label_down : label.style_label_up, poBadgeCol, poSize(poChartTxt))
+    if po3ShowCisd and poCisdScope == "Sequence only" and not na(rc.mcBar)
+        for k = 0 to 2
+            int mb = rc.mcBar.get(k)
+            if not na(mb) and (k == 0 or po3ShowMtfCisd) and bar_index - rc.mcStart.get(k) < 4000
+                float ml = rc.mcLvl.get(k)
+                color mc = bear ? poCisdBear : poCisdBull
+                poLineI(rc.mcStart.get(k), ml, mb + 3, ml, k == 0 ? mc : color.new(mc, 35), line.style_solid, k == 0 ? 2 : 1)
+                if k > 0
+                    poLabelI(mb + 3, ml, k == 1 ? "3m" : "5m", label.style_label_left, mc, poSize(poChartTxt))
+    if not na(rc.cisdBar)
+        if poStdvOn and newest and not na(rc.c2Wick) and not na(rc.cisdTime)
+            array<float> lv = poParseLevels(poStdvLevels)
+            if lv.size() > 0
+                int chartMs = int(timeframe.in_seconds() * 1000)
+                bool done = not rc.alive or not na(rc.cisdBrokeT)
+                int stopT = not na(rc.cisdBrokeT) ? rc.cisdBrokeT : not rc.alive and not na(rc.endTime) ? rc.endTime : time + chartMs * 3
+                int x2 = math.max(stopT, rc.cisdTime + chartMs)
+                color base = bear ? poStdvBear : poStdvBull
+                color lc = done ? color.new(base, 70) : base
+                if poStdvLeg
+                    poLineI(rc.cisdStartBar, rc.cisdLevel, rc.c2ExtBar, rc.c2Wick, color.new(base, done ? 80 : 45), line.style_solid, 1)
+                array<float> px = array.new_float(0)
+                for i = 0 to lv.size() - 1
+                    float d = lv.get(i)
+                    float pr = rc.cisdLevel + d * (rc.c2Wick - rc.cisdLevel)
+                    px.push(pr)
+                    poLineT(rc.cisdTime, pr, x2, pr, lc, line.style_solid, 1)
+                    string txt = str.tostring(d) + (poStdvPrice ? "  " + str.tostring(pr, format.mintick) : "")
+                    poLabelT(x2, pr, txt, label.style_label_left, lc, poSize(poChartTxt))
+                if poStdvFill and px.size() >= 2
+                    for i = 0 to px.size() - 2 by 2
+                        float a = px.get(i)
+                        float b = px.get(i + 1)
+                        poBoxT(rc.cisdTime, math.max(a, b), x2, math.min(a, b), color.new(base, done ? 95 : 88), color.new(base, 100), 1)
+    0
+
+poDispRec() =>
+    PoRec res = na
+    if poSrcOk and poDisp.side != 0 and poRecs.size() > 0
+        int c2s = poSrcLane.cs.get(poDisp.i2).startBar
+        for i = 0 to poRecs.size() - 1
+            PoRec r = poRecs.get(i)
+            if r.side == poDisp.side and r.c2StartBar == c2s
+                res := r
+    res
+
+poMinCell(table t, int col, int row, string txt, color tc, string ha) =>
+    table.cell(t, col, row, txt, text_color = tc, text_halign = ha, text_size = poSize(poTblTxt))
+    0
+
+poUpdateMinimal() =>
+    string srcTf = poSrcOk ? poFmtTf(poSrcLane.tf) : "n/a"
+    string chartTf = poFmtTf(timeframe.period)
+    string biasTxt = poSsmtBias == "Auto-Filter" ? "Auto" : poSsmtBias == "Bullish only" ? "Bull" : poSsmtBias == "Bearish only" ? "Bear" : "Off"
+    int smtDir = poSsmtDir != 0 ? poSsmtDir : poSmtDirLive
+    string smtArrow = smtDir == 1 ? "↗" : smtDir == -1 ? "↘" : "–"
+    color smtCol = smtDir == 1 ? poTblBull : smtDir == -1 ? poTblBear : poStatusTxt
+    string phase = "No Phase"
+    color phCol = poStatusTxt
+    if not poSrcOk
+        phase := "Profile TF unavailable"
+    else if poPending
+        phase := "xC2 · both sides live"
+        phCol := poTblAcc
+    else if poDisp.side != 0
+        phase := (poDisp.side == 1 ? "↑ " : "↓ ") + (poDisp.twoSided and poDisp.phase == 2 ? "xC2" : "C" + str.tostring(poDisp.phase)) + " Phase" + (poDisp.phase == 2 and not poDisp.closedIn ? " (live)" : "")
+        phCol := poDisp.side == 1 ? poTblBull : poTblBear
+    // v4.2: phase candle timer (countdown of the live candle + start of the following phases)
+    [pRem, pSched] = poPhaseTimerInfo()
+    poMinCell(poHdr, 0, 0, biasTxt + "  |  " + chartTf + " → " + srcTf + "  |  " + smtArrow, poStatusTxt, text.align_center)
+    poMinCell(poHdr, 0, 1, phase + (str.length(pRem) > 0 ? "  " + pRem : ""), phCol, text.align_center)
+    // Phase tracker: where the sequence is now (ACC -> MANIP -> DIST -> CONT) + what it means
+    string prog = "–"
+    string desc = ""
+    color  dCol = poStatusTxt
+    if poSrcOk
+        if poPending
+            prog := "ACC ✓ → MANIP ● → DIST ○ → CONT ○"
+            desc := "xC2: both C1 extremes swept, waiting for one side to survive"
+            dCol := poTblAcc
+        else if poDisp.side != 0
+            int ph = poDisp.phase
+            PoRec dr0 = poDispRec()
+            bool cisdSeen = not na(dr0) and not na(dr0.cisdBar)
+            string swept = poDisp.side == -1 ? "C1 high" : "C1 low"
+            prog := "ACC ✓ → MANIP " + (ph > 2 ? "✓" : "●") + " → DIST " + (ph > 3 ? "✓" : ph == 3 ? "●" : "○") + " → CONT " + (ph == 4 ? "●" : "○")
+            if ph == 2
+                desc := poDisp.closedIn ? "Manipulation: " + swept + " swept, C2 is back inside C1" : "Manipulation: sweeping " + swept + ", C2 still forming"
+            else if ph == 3
+                desc := "Distribution: C3 running, watch the C3 T-Spot"
+            else
+                desc := "Continuation: C4 running, watch the C4 T-Spot add"
+            desc := desc + (cisdSeen ? " · CISD ✓" : " · CISD ··")
+            dCol := poDisp.side == 1 ? poTblBull : poTblBear
+        else
+            prog := "ACC ● → MANIP ○ → DIST ○ → CONT ○"
+            desc := "Accumulation: waiting for C2 to sweep the C1 high / low"
+    poMinCell(poHdr, 0, 2, prog, dCol, text.align_center)
+    poMinCell(poHdr, 0, 3, desc, poStatusTxt, text.align_center)
+    poMinCell(poHdr, 0, 4, str.length(pSched) > 0 ? "Next: " + pSched : "", poStatusTxt, text.align_center)
+    if poChecklist
+        PoRec dr = poDispRec()
+        bool c2Ok = poDisp.side != 0 and (poDisp.phase >= 3 or poDisp.closedIn)
+        bool cisdOk = not na(dr) and not na(dr.cisdBar)
+        string req = srcTf + " C2 Confirmed " + (c2Ok ? "✓" : "··") + " + LTF CISD " + (cisdOk ? "✓" : "··")
+        string smTxt = not po3ShowSmt ? "off" : poSmtDirLive == 0 or poSmtLaneLive == 0 ? "none live" : (poSmtDirLive == 1 ? "Bullish " : "Bearish ") + poFmtTf(poSmtLanes.get(poSmtLaneLive - 1).tf)
+        color smC = poSmtDirLive == 1 ? poTblBull : poSmtDirLive == -1 ? poTblBear : poStatusTxt
+        string ssTxt = not poSsmtOn ? "off" : not (poSmtOk4 or poSmtOk6) ? "needs 90m / 6H" : poSsmtDir == 1 ? "Bullish" : poSsmtDir == -1 ? "Bearish" : "none live"
+        color ssC = poSsmtDir == 1 ? poTblBull : poSsmtDir == -1 ? poTblBear : poStatusTxt
+        poMinCell(poPnl, 0, 0, biasTxt + " Bias", poTblAcc, text.align_right)
+        poMinCell(poPnl, 1, 0, "", poStatusTxt, text.align_left)
+        poMinCell(poPnl, 0, 1, srcTf + " → " + chartTf, poStatusTxt, text.align_right)
+        poMinCell(poPnl, 1, 1, "← Model", poStatusTxt, text.align_left)
+        poMinCell(poPnl, 0, 2, req, c2Ok and cisdOk ? poTblBull : poStatusTxt, text.align_right)
+        poMinCell(poPnl, 1, 2, "← Requirements", poStatusTxt, text.align_left)
+        poMinCell(poPnl, 0, 3, smTxt, smC, text.align_right)
+        poMinCell(poPnl, 1, 3, "← SMT", poStatusTxt, text.align_left)
+        poMinCell(poPnl, 0, 4, ssTxt, ssC, text.align_right)
+        poMinCell(poPnl, 1, 4, "← SSMT", poStatusTxt, text.align_left)
+        poMinCell(poPnl, 0, 5, poDispPsp ? "C2 is PSP" : "–", poDispPsp ? poTblAcc : poStatusTxt, text.align_right)
+        poMinCell(poPnl, 1, 5, "← PSP", poStatusTxt, text.align_left)
+        poMinCell(poPnl, 0, 6, phase, phCol, text.align_right)
+        poMinCell(poPnl, 1, 6, "← Sequence", poStatusTxt, text.align_left)
+    0
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v4.3 SIGNAL PANEL: every row is read from the LIVE sequence (poDispRec) and its phase.
+// Old orders / old signals from other sequences are never shown as current signals.
+// v4.7: if the live sequence has no order but an OLD sequence still has an active order
+// (pending / open / runner), that order is shown too (HOLD ... (seq lama)), so the panel
+// matches the chart line. Finished orders stay in "Last closed" / "Stats" only.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Order that belongs to the live sequence (same side + same C2), not cancelled
+poSeqOrder(PoRec rc) =>
+    PoTrade res = na
+    if not na(rc) and poTrades.size() > 0
+        for i = 0 to poTrades.size() - 1
+            PoTrade q = poTrades.get(i)
+            if q.side == rc.side and q.c2Bar == rc.c2StartBar and q.status != -2
+                res := q
+    res
+
+// Last finished order (history only, not a signal)
+poLastClosed() =>
+    PoTrade res = na
+    int i = poTrades.size() - 1
+    while i >= 0 and na(res)
+        PoTrade q = poTrades.get(i)
+        if q.status == 3 or q.status == 4 or q.status == -1
+            res := q
+        i -= 1
+    res
+
+// v4.7: newest ACTIVE order (pending / open / runner) from ANY sequence.
+poActiveOrder() =>
+    PoTrade res = na
+    int i = poTrades.size() - 1
+    while i >= 0 and na(res)
+        PoTrade q = poTrades.get(i)
+        if q.status >= 0 and q.status <= 2
+            res := q
+        i -= 1
+    res
+
+// Why the live sequence has no order yet
+poWhyNoOrder(PoRec rc) =>
+    string w = "no sequence"
+    if not na(rc)
+        if not poOrdOn
+            w := "order entries off"
+        else if rc.maxPhase < 3
+            w := "waits C2 close (C3 open)"
+        else if not poSpotOk(rc)
+            string miss = ""
+            if poSpotStrict == "Easy" and na(rc.cisdBar) and not rc.smt
+                miss := " CISD/SMT"
+            if poSpotStrict == "Medium" or poSpotStrict == "Hard" or poSpotStrict == "Max"
+                if na(rc.cisdBar)
+                    miss := miss + " CISD"
+                if not rc.smt
+                    miss := miss + " SMT"
+            if (poSpotStrict == "Hard" or poSpotStrict == "Max") and not rc.psp
+                miss := miss + " PSP"
+            if poSpotStrict == "Max" and miss == ""
+                miss := " Max rules"
+            if poReqC2In and not na(rc.c2Close) and not (rc.c2Close < rc.c1Hi and rc.c2Close > rc.c1Lo)
+                miss := miss + " C2-in-C1"
+            w := "filter " + poSpotStrict + " needs:" + miss
+        else if rc.cisdTried
+            w := "CISD order skipped (risk % / min TP1 R)"
+        else
+            w := "waiting T-Spot retrace"
+    w
+
+// C3 / C4 T-Spot line of the live sequence: [text, color]
+poSpotLine(PoRec rc, int which) =>
+    string s = "–"
+    color c = poStatusTxt
+    if not na(rc)
+        bool p4 = which == 4
+        bool started = rc.maxPhase >= which
+        bool fired = p4 ? rc.alertC4 : rc.alertC3
+        bool dead = p4 ? rc.spot4Dead : rc.spot3Dead
+        int lft = p4 ? rc.c4LeftBar : rc.c3LeftBar
+        int sT = p4 ? rc.sigC4T : rc.sigC3T
+        string arrow = rc.side == 1 ? "▲ " : "▼ "
+        color dc = rc.side == 1 ? poTblBull : poTblBear
+        if not started
+            s := "not started"
+        else if fired and not na(sT)
+            s := arrow + "touched " + str.format_time(sT, "dd/MM HH:mm", poTz)
+            c := dc
+        else if dead
+            s := "dead (closed through)"
+        else if not poSpotOk(rc)
+            s := "filter " + poSpotStrict + " not met"
+        else
+            [zt, zb] = poSpotZone(rc, which)
+            string zTxt = na(zt) ? "" : str.tostring(zb, format.mintick) + "–" + str.tostring(zt, format.mintick)
+            if poReqLeave and na(lft)
+                s := "wait displacement · " + zTxt
+            else
+                s := "wait retrace · " + zTxt
+            c := poTblAcc
+    [s, c]
+
+// v4.6: ENTRY NOW = a placed limit that is still waiting, or an entry taken within the last few bars.
+// Returns the time until which the entry is actionable (na = not actionable).
+poNowExpT(PoTrade od) =>
+    int e = na
+    if not na(od)
+        int chartMs = int(timeframe.in_seconds() * 1000)
+        if od.status == 0
+            e := od.expT
+        else if od.status == 1 and not na(od.fillTime) and bar_index - od.fillBar <= poNowBars
+            e := od.fillTime + chartMs * (poNowBars + 1)
+            if not na(od.expT)
+                e := math.min(e, od.expT)
+    e
+
+poNowLeftMs(int e) =>
+    int left = na
+    if not na(e)
+        int nowT = barstate.isrealtime ? timenow : math.min(timenow, na(time_close) ? timenow : time_close)
+        left := math.max(e - nowT, 0)
+    left
+
+// What may be done RIGHT NOW, by phase: [text, color]
+poActionInfo(PoRec rc, PoTrade od) =>
+    string txt = "NO TRADE · ACC: waiting C2 sweep"
+    color col = poStatusTxt
+    if poPending
+        txt := "WAIT · xC2: both C1 sides swept"
+        col := poTblAcc
+    else if not na(rc)
+        string dirT = rc.side == 1 ? "BUY" : "SELL"
+        color dc = rc.side == 1 ? poTblBull : poTblBear
+        col := dc
+        int nowE = poNowExpT(od)
+        int nowL = poNowLeftMs(nowE)
+        if not na(nowE) and nowL > 0
+            txt := "ENTRY NOW · " + dirT + (od.status == 0 ? " LIMIT @ " : " MARKET @ ") + str.tostring(od.entry, format.mintick) + " · exp " + poFmtDur(nowL)
+        else if not na(od) and (od.status == 0 or od.status == 1 or od.status == 2)
+            txt := od.status == 0 ? dirT + " LIMIT pending" : od.status == 1 ? dirT + " ACTIVE · manage SL / TP" : dirT + " · TP1 hit, runner at BE"
+        else if not na(od)
+            txt := "NO TRADE · " + poOrdStatusTxt(od) + " (sequence used)"
+            col := poStatusTxt
+        else if rc.maxPhase < 3
+            txt := "WAIT · MANIP: C2 forming (" + dirT + " bias)"
+            col := poStatusTxt
+        else
+            bool p4 = rc.maxPhase >= 4
+            string ph = p4 ? "C4" : "C3"
+            bool dead = p4 ? rc.spot4Dead : rc.spot3Dead
+            bool used = p4 ? rc.alertC4 : rc.alertC3
+            int lft = p4 ? rc.c4LeftBar : rc.c3LeftBar
+            if not poSpotOk(rc)
+                txt := "NO TRADE · " + ph + " filter " + poSpotStrict + " not met"
+                col := poStatusTxt
+            else if dead
+                txt := "NO TRADE · " + ph + " T-Spot closed through"
+                col := poStatusTxt
+            else if used
+                txt := "NO TRADE · " + ph + " signal already used"
+                col := poStatusTxt
+            else if poReqLeave and na(lft)
+                txt := "WAIT · " + dirT + " bias · need displacement (" + ph + ")"
+            else
+                txt := "WAIT · " + dirT + " retrace into " + ph + " T-Spot"
+    [txt, col]
+
+poSigRow(int r, string k, string v, color vc) =>
+    table.cell(poSigTbl, 0, r, k, text_color = poTblAcc, text_size = poSize(poTblTxt), text_halign = text.align_left)
+    table.cell(poSigTbl, 1, r, v, text_color = vc, text_size = poSize(poTblTxt), text_halign = text.align_right)
+    0
+
+poUpdateSigPanel() =>
+    if not na(poSigTbl)
+        string fmt = "dd/MM HH:mm"
+        PoRec   rc = poDispRec()
+        PoTrade od = poSeqOrder(rc)
+        PoTrade oa = poActiveOrder()
+        bool foreign = not na(oa) and na(od)   // v4.7: ada order aktif dari sequence lama
+        bool    has = not na(rc)
+        string  arrow = has ? (rc.side == 1 ? "▲ " : "▼ ") : ""
+        color   dcol = has ? (rc.side == 1 ? poTblBull : poTblBear) : poStatusTxt
+
+        // 0 · ACTION
+        [actTxt, actCol] = poActionInfo(rc, od)
+        if foreign and not str.startswith(actTxt, "ENTRY NOW")
+            actTxt := "HOLD " + (oa.side == 1 ? "BUY" : "SELL") + " " + oa.kind + " (" + poOrdStatusTxt(oa) + ") · " + actTxt
+            actCol := oa.side == 1 ? poTblBull : poTblBear
+        poSigRow(0, "ACTION", actTxt, actCol)
+        bool nowOn = str.startswith(actTxt, "ENTRY NOW")
+        table.cell_set_bgcolor(poSigTbl, 0, 0, nowOn ? color.new(dcol, 65) : color.new(color.black, 15))
+        table.cell_set_bgcolor(poSigTbl, 1, 0, nowOn ? color.new(dcol, 65) : color.new(color.black, 15))
+
+        // 1 · Phase + countdown
+        [pRem, pSched] = poPhaseTimerInfo()
+        string phTxt = poPending ? "xC2 · MANIP" : has ? arrow + poPhaseTag("C" + str.tostring(poLivePhase())) : "C1 · ACC"
+        if str.length(pRem) > 0
+            phTxt := phTxt + "  " + pRem
+        poSigRow(1, "Phase", phTxt, has ? dcol : poStatusTxt)
+
+        // 2 · CISD (live sequence)
+        string cisdTxt = "–"
+        color  cisdCol = poStatusTxt
+        if has
+            if na(rc.cisdBar)
+                cisdTxt := "waiting (after C2 sweep)"
+            else
+                string cT = na(rc.cisdTime) ? "" : " " + str.format_time(rc.cisdTime, fmt, poTz)
+                bool broken = not na(rc.cisdBrokeT)
+                cisdTxt := arrow + (broken ? "CISD ✗ broken" : "CISD ✓") + cT
+                cisdCol := broken ? poStatusTxt : dcol
+        poSigRow(2, "CISD (seq)", cisdTxt, cisdCol)
+
+        // 3 / 4 · C3 / C4 T-Spot (live sequence)
+        [c3Txt, c3Col] = poSpotLine(rc, 3)
+        [c4Txt, c4Col] = poSpotLine(rc, 4)
+        poSigRow(3, "C3 T-Spot", c3Txt, c3Col)
+        poSigRow(4, "C4 T-Spot", c4Txt, c4Col)
+
+        // 5 - 8 · order of the live sequence (or the active order of an older sequence)
+        string ordTxt = "none"
+        string entTxt = "–"
+        string tpTxt  = "–"
+        string stTxt  = poWhyNoOrder(rc)
+        color  ordCol = poStatusTxt
+        color  stCol  = poStatusTxt
+        if not na(od)
+            ordTxt := (od.side == 1 ? "▲ BUY " : "▼ SELL ") + od.kind
+            entTxt := str.tostring(od.entry, format.mintick) + " / " + str.tostring(od.sl, format.mintick)
+            tpTxt  := str.tostring(od.tp1, format.mintick) + " / " + str.tostring(od.tp2, format.mintick)
+            stTxt  := poOrdStatusTxt(od)
+            ordCol := od.side == 1 ? poTblBull : poTblBear
+            stCol  := od.status == 3 or od.status == 2 or od.status == 4 ? poTblBull : od.status == -1 ? poTblBear : poTblAcc
+        if foreign
+            ordTxt := (oa.side == 1 ? "▲ BUY " : "▼ SELL ") + oa.kind + " (seq lama)"
+            entTxt := str.tostring(oa.entry, format.mintick) + " / " + str.tostring(oa.sl, format.mintick)
+            tpTxt  := str.tostring(oa.tp1, format.mintick) + " / " + str.tostring(oa.tp2, format.mintick)
+            stTxt  := poOrdStatusTxt(oa)
+            ordCol := oa.side == 1 ? poTblBull : poTblBear
+            stCol  := oa.status == 0 ? poTblAcc : poTblBull
+        poSigRow(5, "Order (seq)", ordTxt, ordCol)
+        poSigRow(6, "Entry / SL", entTxt, ordCol)
+        poSigRow(7, "TP1 / TP2", tpTxt, ordCol)
+        poSigRow(8, "Status", stTxt, stCol)
+
+        // 9 · v4.6 entry expiry: valid-until clock + countdown (or the setup deadline before an order exists)
+        string expTxt = "–"
+        color  expCol = poStatusTxt
+        int    expE   = poNowExpT(od)
+        if not na(expE)
+            int expL = poNowLeftMs(expE)
+            expTxt := str.format_time(expE, "HH:mm:ss", poTz) + (expL > 0 ? "  ⏱ " + poFmtDur(expL) : "  expired")
+            expCol := expL > 0 and expL > int(timeframe.in_seconds() * 2000) ? poTblAcc : poTblBear
+        else if has and na(od) and rc.maxPhase >= 3
+            int setupE = poOrdValidUntil(rc, rc.maxPhase >= 4 ? "C4" : "C3")
+            expTxt := "setup until " + str.format_time(setupE, "HH:mm", poTz)
+        poSigRow(9, "Entry expires", expTxt, expCol)
+
+        // 10 · history: last closed order (dimmed, not a signal)
+        PoTrade lc = poLastClosed()
+        string lcTxt = "–"
+        if not na(lc)
+            lcTxt := (lc.side == 1 ? "▲ " : "▼ ") + lc.kind + " " + poOrdStatusTxt(lc) + " · " + str.format_time(lc.sigTime, fmt, poTz)
+        poSigRow(10, "Last closed", lcTxt, color.new(poStatusTxt, 35))
+
+        // 11 · stats
+        [stClosed, stSl, stBe, stTp2, stTp1, stRun, stOpen, stNetR] = poOrdStats()
+        int decided = stClosed + stRun
+        string statTxt = decided > 0 ? str.tostring(stClosed) + " closed · SL " + str.tostring(stSl) + " BE " + str.tostring(stBe) + " TP2 " + str.tostring(stTp2) + " · TP1 " + str.tostring(math.round(stTp1 * 100.0 / decided)) + "% · " + str.tostring(stNetR, "#.##") + "R" : "–"
+        color statCol = stNetR > 0 ? poTblBull : stNetR < 0 ? poTblBear : poStatusTxt
+        poSigRow(11, "Stats", statTxt, statCol)
+    0
+
+// ── Layout ───────────────────────────────────────────────────────────────────
+type PoLayout
+    array<int> starts
+    int   slot
+    int   bw
+    int   gapEff
+    int   cursor
+    float rowTop
+    float rowBot
+
+poLayoutCalc() =>
+    int activeLanes = 0
+    int reservedTotal = 0
+    for li = 0 to 2
+        PoLane l0 = poLanes.get(li)
+        if l0.active and l0.cs.size() > 0
+            activeLanes += 1
+            reservedTotal += l0.count
+    int baseSlot = poCandleW * 2 + 1
+    int slotCap = reservedTotal > 0 ? int(math.floor((485 - poRightOffset - math.max(activeLanes - 1, 0)) / reservedTotal)) : baseSlot
+    int slot = math.max(2, math.min(baseSlot, slotCap))
+    int bw = slot - 1
+    int gapEff = poLaneGap
+    if activeLanes > 1
+        int room = 485 - poRightOffset - reservedTotal * slot
+        gapEff := math.max(1, math.min(poLaneGap, int(math.floor(room / (activeLanes - 1)))))
+    array<int> starts = array.new_int(3, -1)
+    int cursor = poRightOffset
+    for li = 0 to 2
+        PoLane l1 = poLanes.get(li)
+        if l1.active and l1.cs.size() > 0
+            starts.set(li, cursor)
+            cursor += l1.count * slot + gapEff
+
+    float rowTop = na
+    float rowBot = na
+    for li = 0 to 2
+        PoLane l2 = poLanes.get(li)
+        if l2.active and starts.get(li) >= 0
+            int n2 = l2.cs.size()
+            int sh2 = math.min(l2.count, n2)
+            for idx = n2 - sh2 to n2 - 1
+                PoCandle cx = l2.cs.get(idx)
+                rowTop := na(rowTop) ? cx.h : math.max(rowTop, cx.h)
+                rowBot := na(rowBot) ? cx.l : math.min(rowBot, cx.l)
+
+    PoLayout.new(starts, slot, bw, gapEff, cursor, rowTop, rowBot)
+
+poRenderLanes(PoLayout L) =>
+    array<int> starts = L.starts
+    int   slot = L.slot
+    int   bw = L.bw
+    int   gapEff = L.gapEff
+    float rowTop = L.rowTop
+    float rowBot = L.rowBot
+    if po3ShowCandles and not na(rowTop)
+        for li = 0 to 2
+            PoLane ln = poLanes.get(li)
+            int st = starts.get(li)
+            if ln.active and st >= 0
+                int n = ln.cs.size()
+                int sh = math.min(ln.count, n)
+                bool isSrc = (li + 1) == poSrcNo and poSrcOk
+                for idx = n - sh to n - 1
+                    PoCandle cd = ln.cs.get(idx)
+                    int lx = poCandleLeft(st, ln.count, n, idx, slot)
+                    int rx = lx + bw
+                    int mx = lx + int(bw / 2)
+                    int cdir = poDir(cd.o, cd.c)
+                    float top = math.max(cd.o, cd.c)
+                    float bot = math.min(cd.o, cd.c)
+                    if cdir == 0
+                        top := top + syminfo.mintick * 0.5
+                        bot := bot - syminfo.mintick * 0.5
+                    color fillC = cdir == 1 ? poBullBody : cdir == -1 ? poBearBody : color.gray
+                    color edgeC = cdir == 1 ? poBullBorder : poBearBorder
+                    if po3ShowPsp and poPspOn and idx >= 1
+                        PoCandle pv = ln.cs.get(idx - 1)
+                        if (cd.h > pv.h or cd.l < pv.l) and poPspFlag(cd)
+                            fillC := cdir == 1 ? poPspBull : poPspBear
+                    poBoxI(lx, top, rx, bot, fillC, edgeC, 1)
+                    poLineI(mx, cd.h, mx, top, poWick, line.style_solid, 1)
+                    poLineI(mx, bot, mx, cd.l, poWick, line.style_solid, 1)
+                    if poMidpoint and idx < n - 1
+                        float mid = (cd.h + cd.l) / 2.0
+                        poLineI(lx, mid, rx + 3, mid, poMidCol, line.style_dashed, 1)
+                    if poHtfSweep and idx >= 1 and ln.count - n + idx - 1 >= 0
+                        PoCandle sp = ln.cs.get(idx - 1)
+                        int pmx = poCandleLeft(st, ln.count, n, idx - 1, slot) + int(bw / 2)
+                        if cd.h > sp.h
+                            poLineI(pmx, sp.h, mx, sp.h, poHtfSweepCol, line.style_solid, 1)
+                        if cd.l < sp.l
+                            poLineI(pmx, sp.l, mx, sp.l, poHtfSweepCol, line.style_solid, 1)
+                    if isSrc and poHOpen and idx < n - 1
+                        poLineI(rx, cd.o, rx + 2, cd.o, poHOpenCol, line.style_dotted, 1)
+                poDrawImbalances(ln, st, slot, bw)
+
+                if isSrc and po3ShowProfile and poDisp.side != 0
+                    bool abv = poDisp.side == -1
+                    int remSrc = poSrcRemMs()
+                    if poLabelMode != "Off"
+                        int jMax = math.min(poDisp.i2 + (poLabelMode == "C1/C2/C3/C4" ? 2 : 1), n - 1)
+                        for j = poDisp.i1 to jMax
+                            if ln.count - n + j >= 0
+                                PoCandle cj = ln.cs.get(j)
+                                string tag = poPhaseTag(j == poDisp.i1 ? "C1" : j == poDisp.i2 ? (poDisp.twoSided ? "xC2" : "C2") : j == poDisp.i2 + 1 ? "C3" : "C4")
+                                // v4.2: the live candle carries its countdown
+                                if poPhaseTimer and j == n - 1 and not na(remSrc)
+                                    tag := tag + "\n⏱ " + poFmtDur(remSrc)
+                                int jx = poCandleLeft(st, ln.count, n, j, slot) + int(bw / 2)
+                                poLabelI(jx, abv ? cj.h : cj.l, tag, abv ? label.style_label_down : label.style_label_up, j == poDisp.i1 ? poBadgeCol : poAccent, poSize(poCandleTxt))
+                    if poSweepLine and ln.count - n + poDisp.i1 >= 0
+                        PoCandle k1 = ln.cs.get(poDisp.i1)
+                        float lv = poDisp.side == -1 ? k1.h : k1.l
+                        int sx1 = poCandleLeft(st, ln.count, n, poDisp.i1, slot) + int(bw / 2)
+                        int sx2 = poCandleLeft(st, ln.count, n, poDisp.i2, slot) + bw + 1
+                        poLineI(sx1, lv, sx2, lv, poSweepCol, line.style_solid, 1)
+
+                if poHlTimes and sh > 0
+                    int hiIdx = n - sh
+                    int loIdx = n - sh
+                    for idx = n - sh to n - 1
+                        if ln.cs.get(idx).h > ln.cs.get(hiIdx).h
+                            hiIdx := idx
+                        if ln.cs.get(idx).l < ln.cs.get(loIdx).l
+                            loIdx := idx
+                    bool srcTags = isSrc and po3ShowProfile and poDisp.side != 0 and poLabelMode != "Off"
+                    int tagEnd = srcTags ? poDisp.i2 + (poLabelMode == "C1/C2/C3/C4" ? 2 : 1) : -1
+                    bool hiTaken = srcTags and poDisp.side == -1 and hiIdx >= poDisp.i1 and hiIdx <= tagEnd
+                    bool loTaken = srcTags and poDisp.side == 1 and loIdx >= poDisp.i1 and loIdx <= tagEnd
+                    PoCandle chi = ln.cs.get(hiIdx)
+                    PoCandle clo = ln.cs.get(loIdx)
+                    if not hiTaken
+                        poLabelI(poCandleLeft(st, ln.count, n, hiIdx, slot) + int(bw / 2), chi.h, str.format_time(chi.startTime, "HH:mm", poTz), label.style_label_down, poBadgeCol, poSize(poChartTxt))
+                    if not loTaken
+                        poLabelI(poCandleLeft(st, ln.count, n, loIdx, slot) + int(bw / 2), clo.l, str.format_time(clo.startTime, "HH:mm", poTz), label.style_label_up, poBadgeCol, poSize(poChartTxt))
+
+                if poBadge != "Off"
+                    int bkL = li == 0 ? poBk1 : li == 1 ? poBk2 : poBk3
+                    int cxm = bar_index + st + int(((ln.count - 1) * slot + bw) / 2.0)
+                    string badge = poFmtTf(ln.tf)
+                    float pctLeft = na
+                    if poBadge == "Full"
+                        string cdTxt = poCountdown(ln.tf, bkL)
+                        if str.length(cdTxt) > 0
+                            badge := badge + "\n(" + cdTxt + ")"
+                    else if poBadge == "% left"
+                        pctLeft := poPctLeft(ln.tf, bkL)
+                        if not na(pctLeft)
+                            badge := badge + "\n(" + str.tostring(math.round(pctLeft * 100)) + "%)"
+                    // v4.2: the profile lane badge also names the live phase (C1 / C2 / C3 / C4)
+                    if isSrc and poPhaseTimer
+                        badge := poFmtTf(ln.tf) + " · " + poPhaseTag("C" + str.tostring(poLivePhase())) + str.substring(badge, str.length(poFmtTf(ln.tf)))
+                        if poBadge == "TF only"
+                            string cdS = poCountdown(ln.tf, bkL)
+                            if str.length(cdS) > 0
+                                badge := badge + "\n(" + cdS + ")"
+                    if isSrc
+                        badge := "✦ " + badge
+                    color bcol = isSrc ? poAccent : poBadgeCol
+                    if not na(pctLeft) and pctLeft < 0.1
+                        bcol := poTblBear
+                    float padY = (rowTop - rowBot) * (poHlTimes ? 0.07 : 0.04)
+                    if poBadgePos != "Bottom"
+                        poLabelI(cxm, rowTop + padY, badge, label.style_label_down, bcol, poSize(poCandleTxt))
+                    if poBadgePos != "Top"
+                        poLabelI(cxm, rowBot - padY, badge, label.style_label_up, bcol, poSize(poCandleTxt))
+
+                if poDivider and li > 0
+                    int dx = bar_index + st - int(gapEff / 2)
+                    poLineI(dx, rowBot, dx, rowTop, color.new(color.gray, 55), line.style_dotted, 1)
+
+        if po3ShowSmt and poSmtHtf and poSmtMarks.size() > 0
+            for mi = 0 to poSmtMarks.size() - 1
+                PoSmt sm = poSmtMarks.get(mi)
+                PoLane sl = poSmtLanes.get(sm.lane - 1)
+                for dl = 0 to 2
+                    PoLane ml = poLanes.get(dl)
+                    int stl = starts.get(dl)
+                    if ml.active and stl >= 0 and poSameTf(ml.tf, sl.tf)
+                        int nl = ml.cs.size()
+                        int ir = poIdxByStart(ml, sm.refStart)
+                        int ic = poIdxByStart(ml, sm.curStart)
+                        if ir >= 0 and ic >= 0
+                            int kr = ml.count - nl + ir
+                            int kc = ml.count - nl + ic
+                            if kr >= 0 and kc >= 0
+                                int xr = bar_index + stl + kr * slot + int(bw / 2)
+                                int xc = bar_index + stl + kc * slot + int(bw / 2)
+                                poLineI(xr, sm.refLevel, xc, sm.curLevel, poSmtColor(sm), line.style_solid, 2)
+    0
+
+poRenderLevels(PoLayout L) =>
+    array<int> starts = L.starts
+    int slot = L.slot
+    int cursor = L.cursor
+    int chartMs = int(timeframe.in_seconds() * 1000)
+    if po3ShowLevels and timeframe.isintraday
+        int keyEnd = time + chartMs * (cursor + 2)
+        if poKeyPd and not na(poPdh)
+            poLineT(poPdhT, poPdh, keyEnd, poPdh, poKeyPdCol, line.style_solid, 1)
+            poLabelT(keyEnd, poPdh, "PDH", label.style_label_left, poKeyPdCol, poSize(poChartTxt))
+        if poKeyPd and not na(poPdl)
+            poLineT(poPdlT, poPdl, keyEnd, poPdl, poKeyPdCol, line.style_solid, 1)
+            poLabelT(keyEnd, poPdl, "PDL", label.style_label_left, poKeyPdCol, poSize(poChartTxt))
+        if poKeyEq and not na(poPdh) and not na(poPdl) and not na(poDayOpenT)
+            float pdEq = (poPdh + poPdl) / 2.0
+            poLineT(poDayOpenT, pdEq, keyEnd, pdEq, poKeyEqCol, line.style_dashed, 1)
+            poLabelT(keyEnd, pdEq, "PD-EQ", label.style_label_left, poKeyEqCol, poSize(poChartTxt))
+        if timeframe.in_seconds() <= 3600
+            string coSty = poCoStyle == "Dashed" ? line.style_dashed : poCoStyle == "Solid" ? line.style_solid : line.style_dotted
+            for k = 0 to 4
+                float coPx = poCoP.get(k)
+                if poCoOn.get(k) and not na(coPx)
+                    string coSess = poCoSess.get(k)
+                    string coName = str.substring(coSess, 0, 2) + ":" + str.substring(coSess, 2, 4)
+                    poLineT(poCoT.get(k), coPx, keyEnd, coPx, poCoCol.get(k), coSty, 1)
+                    poLabelT(keyEnd, coPx, coName, label.style_label_left, poCoCol.get(k), poSize(poChartTxt))
+        bool wkIsDay = poKeyWk and poWkOpenT == poDayOpenT
+        if poKeyDay and not na(poDayOpen)
+            string dayTxt = str.format_time(poDayOpenT, "HH:mm", poTz)
+            poLineT(poDayOpenT, poDayOpen, keyEnd, poDayOpen, poKeyOpenCol, line.style_dotted, 1)
+            poLabelT(keyEnd, poDayOpen, wkIsDay ? "Weekly / Daily Open · " + dayTxt : "Daily Open · " + dayTxt, label.style_label_left, poKeyOpenCol, poSize(poChartTxt))
+        if poKeyWk and not na(poWkOpen) and not (wkIsDay and poKeyDay)
+            poLineT(poWkOpenT, poWkOpen, keyEnd, poWkOpen, poKeyOpenCol, line.style_dashed, 1)
+            poLabelT(keyEnd, poWkOpen, "Weekly Open", label.style_label_left, poKeyOpenCol, poSize(poChartTxt))
+
+    if poLiqOn and poLiqs.size() > 0
+        array<int> liqCnt = array.new_int(6, 0)
+        for qi = poLiqs.size() - 1 to 0
+            PoLiq q = poLiqs.get(qi)
+            PoLane lq = poLanes.get(q.lane - 1)
+            int slotQ = (q.lane - 1) * 2 + (q.hi ? 0 : 1)
+            if lq.active and liqCnt.get(slotQ) < poLiqKeep
+                liqCnt.set(slotQ, liqCnt.get(slotQ) + 1)
+                bool swept = not na(q.sweptT)
+                int qEnd = swept ? q.sweptT : time + chartMs * 3
+                color qc = swept ? color.new(poLiqCol, 55) : poLiqCol
+                poLineT(q.t, q.level, qEnd, q.level, qc, line.style_solid, 1)
+                poLabelT(qEnd, q.level, poFmtTf(lq.tf) + (q.hi ? " BSL" : " SSL"), label.style_label_left, qc, poSize(poChartTxt))
+
+    if poVOpen and (poVOpenOwn or poSrcOk) and poOpens.size() > 0
+        float rngY = math.max(poHi300 - poLo300, syminfo.mintick * 10)
+        float topY = poHi300 + rngY * 0.07
+        float botY = poLo300 - rngY * 0.02
+        for oi = 0 to poOpens.size() - 1
+            PoOpen po = poOpens.get(oi)
+            if bar_index - po.bar < 4000
+                poLineI(po.bar, botY, po.bar, topY, poVOpenCol, line.style_solid, 1)
+                if poVOpenLabel
+                    poLabelI(po.bar, topY, str.format_time(po.time, "HH:mm", poTz), label.style_label_down, poBadgeCol, poSize(poChartTxt))
+
+    if po3ShowLevels and poHOpen and poSrcOk and not na(poSrcOpenBar) and bar_index - poSrcOpenBar < 4000
+        int srcStart = starts.get(poSrcNo - 1)
+        int endX = bar_index + (srcStart >= 0 ? srcStart + poSrcLane.count * slot : 5)
+        poLineI(poSrcOpenBar, poSrcOpenPrice, endX, poSrcOpenPrice, poHOpenCol, line.style_dotted, 1)
+        poLabelI(endX, poSrcOpenPrice, str.format_time(poSrcOpenTime, "HH:mm", poTz), label.style_label_left, poBadgeCol, poSize(poChartTxt))
+    0
+
+poRenderProfile() =>
+    int chartMs = int(timeframe.in_seconds() * 1000)
+    int tMax = time + chartMs * 400
+    // v4.5 FIX C: close of the live profile candle from the NY-anchored bucket (same as the cutter),
+    // not time_close(tf) which follows the exchange session clock.
+    int bkSrc = poSrcNo == 1 ? poBk1 : poSrcNo == 2 ? poBk2 : poBk3
+    [srcOpenT, srcCloseT] = poHtfSpan(poSrcLane.tf, bkSrc)
+    int closeT = poSrcOk ? srcCloseT : na
+    int liveEnd = na(closeT) ? time + chartMs * 20 : math.min(closeT, tMax)
+    if po3ShowProfile and poSrcOk
+        int drawnRec = 0
+        bool stdvDone = false
+        int ri = poRecs.size() - 1
+        while ri >= 0 and drawnRec < 4
+            PoRec rc = poRecs.get(ri)
+            // v4.7: when poChartLiveOnly is on, only LIVE sequences are drawn (chart = dashboard).
+            bool show = poRecVisible(rc) and (rc.maxPhase >= 3 or rc.alive) and bar_index - rc.c2StartBar < 4000 and (not poChartLiveOnly or rc.alive)
+            if show
+                bool withStdv = not stdvDone and not na(rc.cisdBar)
+                poDrawRec(rc, liveEnd, tMax, withStdv)
+                stdvDone := stdvDone or withStdv
+                drawnRec += 1
+            ri -= 1
+
+    if po3ShowEFvg and poEFvgs.size() > 0
+        for fi = 0 to poEFvgs.size() - 1
+            PoFvg f = poEFvgs.get(fi)
+            color fc = f.bull ? poEFvgBull : poEFvgBear
+            box fb = box.new(f.t1, f.top, f.endT, f.bot, xloc = xloc.bar_time, bgcolor = fc, border_color = color.new(fc, 100), text = f.disp ? "FVG" : "T-Spot FVG", text_size = poSize(poChartTxt), text_color = color.new(fc, 0), text_halign = text.align_right, text_valign = text.align_center)
+            poBoxes.push(fb)
+
+    if po3ShowCisd and poCisdScope == "All" and poCisds.size() > 0
+        for ci = 0 to poCisds.size() - 1
+            PoCisd cz = poCisds.get(ci)
+            poLineI(cz.startBar, cz.level, cz.confirmBar + 3, cz.level, cz.bull ? poCisdBull : poCisdBear, line.style_solid, 2)
+    0
+
+poRenderSmt() =>
+    if po3ShowSmt and poSmtChart and poSmtMarks.size() > 0
+        int nm = poSmtMarks.size()
+        float rngS = math.max(poHi300 - poLo300, syminfo.mintick * 20)
+        float rowH = rngS * 0.012
+        for mi = 0 to nm - 1
+            PoSmt sc = poSmtMarks.get(mi)
+            if sc.refBar < sc.curBar
+                poLineI(sc.refBar, sc.refLevel, sc.curBar, sc.curLevel, poSmtColor(sc), sc.ssmt ? line.style_dashed : line.style_solid, 1)
+                if poSmtDots
+                    poLabels.push(label.new(sc.refBar, sc.refLevel, "", xloc = xloc.bar_index, style = label.style_circle, color = poSmtDotCol, size = size.tiny))
+                if po3ShowSmtLbl and poSmtLabels != "Off"
+                    int rank = 0
+                    float myEnd = sc.dir == -1 ? math.max(sc.refLevel, sc.curLevel) : math.min(sc.refLevel, sc.curLevel)
+                    for mj = 0 to nm - 1
+                        if mj != mi
+                            PoSmt so = poSmtMarks.get(mj)
+                            float otherEnd = so.dir == -1 ? math.max(so.refLevel, so.curLevel) : math.min(so.refLevel, so.curLevel)
+                            bool shares = so.dir == sc.dir and so.refBar < so.curBar and sc.refBar < so.curBar and math.abs(otherEnd - myEnd) <= rngS * 0.12
+                            if shares and (so.lane < sc.lane or (so.lane == sc.lane and mj < mi))
+                                rank += 1
+                    string tfTxt = (sc.ssmt ? "ssmt " : "") + poTfLogo(poSmtLanes.get(sc.lane - 1).tf)
+                    string txt = poSmtLabels == "HTF" or str.length(sc.who) == 0 ? tfTxt : poSmtLabels == "Assets" ? sc.who : tfTxt + "/" + sc.who
+                    int lx = int(math.round((sc.refBar + sc.curBar) / 2.0))
+                    float ly = (sc.refLevel + sc.curLevel) / 2.0 + (sc.dir == -1 ? 1 : -1) * rowH * (1 + rank)
+                    poLabelI(lx, ly, txt, sc.dir == -1 ? label.style_label_down : label.style_label_up, poSmtLabelCol, poSize(poChartTxt))
+    0
+
+poOrdMarker(int x, float y, string txt, string sty, color bg) =>
+    label lb = label.new(x, y, txt, xloc = xloc.bar_time, style = sty, color = bg, textcolor = color.white, size = poSize(poChartTxt))
+    poLabels.push(lb)
+    lb
+
+poRenderOrders() =>
+    int n = poTrades.size()
+    if poOrdOn and n > 0
+        int chartMs = int(timeframe.in_seconds() * 1000)
+        int extBars = math.max(1, math.min(poOrdExtend, poRightOffset - 1))
+
+        // 1) Markers on the candles for the newest orders: entry (BUY / SELL), TP1, TP2 / SL / BE exits
+        int shownM = 0
+        int mi = n - 1
+        while mi >= 0 and shownM < poOrdMarks
+            PoTrade m = poTrades.get(mi)
+            // v4.7: hide finished / cancelled markers when poChartLiveOnly is on (chart = dashboard)
+            if m.status != -2 and (not poChartLiveOnly or (m.status >= 0 and m.status <= 2))
+                shownM += 1
+                bool bullM = m.side == 1
+                int xm = not na(m.fillTime) ? m.fillTime : m.sigTime
+                string entTxt = (bullM ? "▲ BUY " : "▼ SELL ") + m.kind + (m.status == 0 ? " LIMIT" : "")
+                poOrdMarker(xm, m.entry, entTxt, bullM ? label.style_label_up : label.style_label_down, bullM ? poOrdBuyCol : poOrdSellCol)
+                string tpSty = bullM ? label.style_label_down : label.style_label_up
+                string slSty = bullM ? label.style_label_up : label.style_label_down
+                if not na(m.tp1Time)
+                    poOrdMarker(m.tp1Time, m.tp1, "TP1 ✓", tpSty, poOrdTpCol)
+                if m.status == 3 and not na(m.endTime)
+                    poOrdMarker(m.endTime, m.tp2, "TP2 ✓", tpSty, poOrdTpCol)
+                if m.status == -1 and not na(m.endTime)
+                    poOrdMarker(m.endTime, m.sl, "SL ✗", slSty, poOrdSlCol)
+                if m.status == 4 and not na(m.endTime)
+                    poOrdMarker(m.endTime, m.entry, "BE", slSty, color.gray)
+            mi -= 1
+
+        // 2) Entry / SL / TP1 / TP2 levels for the newest orders
+        int shown = 0
+        int i = n - 1
+        while i >= 0 and shown < poOrdKeep
+            PoTrade t = poTrades.get(i)
+            bool closed = t.status == 3 or t.status == 4 or t.status == -1
+            // v4.7: finished orders are hidden when poChartLiveOnly is on
+            bool skip = t.status == -2 or (closed and (poOrdHideClosed or poChartLiveOnly))
+            if not skip
+                shown += 1
+                int x1 = not na(t.fillTime) ? t.fillTime : t.sigTime
+                int pendEnd = t.status == 0 and not na(t.expT) ? math.min(t.expT, time + chartMs * math.max(extBars, poRightOffset - 1)) : time + chartMs * extBars
+                int x2 = closed ? t.endTime + chartMs * 2 : pendEnd
+                if x2 > x1
+                    float risk = math.abs(t.entry - t.sl)
+                    float rr1 = risk > 0 ? math.abs(t.tp1 - t.entry) / risk : 0.0
+                    float rr2 = risk > 0 ? math.abs(t.tp2 - t.entry) / risk : 0.0
+                    int dim = closed ? 55 : 0
+                    color slC = color.new(poOrdSlCol, dim)
+                    color tpC = color.new(poOrdTpCol, dim)
+                    color enC = color.new(poOrdEntryCol, dim)
+                    poBoxT(x1, math.max(t.entry, t.sl), x2, math.min(t.entry, t.sl), color.new(poOrdSlCol, closed ? 94 : 85), color.new(poOrdSlCol, 100), 1)
+                    poBoxT(x1, math.max(t.entry, t.tp2), x2, math.min(t.entry, t.tp2), color.new(poOrdTpCol, closed ? 94 : 85), color.new(poOrdTpCol, 100), 1)
+                    poLineT(x1, t.entry, x2, t.entry, enC, line.style_solid, 2)
+                    poLineT(x1, t.sl, x2, t.sl, slC, line.style_solid, 2)
+                    poLineT(x1, t.tp1, x2, t.tp1, tpC, line.style_dashed, 1)
+                    poLineT(x1, t.tp2, x2, t.tp2, tpC, line.style_solid, 2)
+                    poLabelT(x2, t.entry, "ENTRY " + str.tostring(t.entry, format.mintick) + "  [" + poOrdStatusTxt(t) + (t.status == 0 and not na(t.expT) ? " · exp " + str.format_time(t.expT, "HH:mm", poTz) : "") + "]", label.style_label_left, enC, poSize(poChartTxt))
+                    poLabelT(x2, t.sl, "SL " + str.tostring(t.sl, format.mintick), label.style_label_left, slC, poSize(poChartTxt))
+                    poLabelT(x2, t.tp1, "TP1 " + str.tostring(t.tp1, format.mintick) + " · " + str.tostring(rr1, "#.#") + "R", label.style_label_left, tpC, poSize(poChartTxt))
+                    poLabelT(x2, t.tp2, "TP2 " + str.tostring(t.tp2, format.mintick) + " · " + str.tostring(rr2, "#.#") + "R", label.style_label_left, tpC, poSize(poChartTxt))
+            i -= 1
+    0
+
+// ── Fire programmatic alerts ─────────────────────────────────────────────────
+if poCalc
+    if poFireCisd and poAlertCisd
+        alert("Po3 CISD " + (poSigCisdSide == 1 ? "BULL" : "BEAR") +
+              " @ " + str.tostring(poSigCisdLvl, format.mintick) + poOrdText(poNewCisdTrade), alert.freq_once_per_bar)
+    if poFireCisdOrd and poAlertCisd
+        alert("Po3 CISD ORDER " + (poNewCisdOrd.side == 1 ? "BUY" : "SELL") + poOrdText(poNewCisdOrd), alert.freq_once_per_bar)
+    if poFireC3 and poAlertC3
+        alert("Po3 C3 Entry " + (poSigC3Side == 1 ? "BULL" : "BEAR") +
+              " zone " + str.tostring(poSigC3Bot, format.mintick) +
+              " – " + str.tostring(poSigC3Top, format.mintick) + poOrdText(poNewC3Trade), alert.freq_once_per_bar)
+    if poFireC4 and poAlertC4
+        alert("Po3 C4 Add " + (poSigC4Side == 1 ? "BULL" : "BEAR") +
+              " zone " + str.tostring(poSigC4Bot, format.mintick) +
+              " – " + str.tostring(poSigC4Top, format.mintick) + poOrdText(poNewC4Trade), alert.freq_once_per_bar)
+
+// ── Static alertcondition entries ────────────────────────────────────────────
+// Note: for reliable alerts use "Any alert() function call" when creating the alert in TradingView.
+alertcondition(poFireCisd,    "Po3 · CISD Confirmed",    "Po3 CISD confirmed — aggressive entry")
+alertcondition(poFireCisdOrd, "Po3 · CISD Order placed", "Po3 CISD order placed after C2 close")
+alertcondition(poFireC3,      "Po3 · C3 T-Spot Entry",   "Po3 price touched C3 T-Spot — ideal entry")
+alertcondition(poFireC4,      "Po3 · C4 T-Spot Add",     "Po3 price touched C4 T-Spot — add position")
+
+// ── Signal markers on the signal bar ─────────────────────────────────────────
+plotshape(poSigMarks and poFireCisd and poSigCisdSide == 1, "CISD buy", shape.triangleup, location.belowbar, poOrdBuyCol, text = "CISD", textcolor = poOrdBuyCol, size = size.tiny)
+plotshape(poSigMarks and poFireCisd and poSigCisdSide == -1, "CISD sell", shape.triangledown, location.abovebar, poOrdSellCol, text = "CISD", textcolor = poOrdSellCol, size = size.tiny)
+plotshape(poSigMarks and poFireCisdOrd and poNewCisdOrd.side == 1, "CISD order buy", shape.triangleup, location.belowbar, poOrdBuyCol, text = "CISD ORD", textcolor = poOrdBuyCol, size = size.tiny)
+plotshape(poSigMarks and poFireCisdOrd and poNewCisdOrd.side == -1, "CISD order sell", shape.triangledown, location.abovebar, poOrdSellCol, text = "CISD ORD", textcolor = poOrdSellCol, size = size.tiny)
+plotshape(poSigMarks and poFireC3 and poSigC3Side == 1, "C3 buy", shape.diamond, location.belowbar, poOrdBuyCol, text = "C3", textcolor = poOrdBuyCol, size = size.tiny)
+plotshape(poSigMarks and poFireC3 and poSigC3Side == -1, "C3 sell", shape.diamond, location.abovebar, poOrdSellCol, text = "C3", textcolor = poOrdSellCol, size = size.tiny)
+plotshape(poSigMarks and poFireC4 and poSigC4Side == 1, "C4 buy", shape.diamond, location.belowbar, poOrdBuyCol, text = "C4", textcolor = poOrdBuyCol, size = size.tiny)
+plotshape(poSigMarks and poFireC4 and poSigC4Side == -1, "C4 sell", shape.diamond, location.abovebar, poOrdSellCol, text = "C4", textcolor = poOrdSellCol, size = size.tiny)
+
+// ── Final render ─────────────────────────────────────────────────────────────
+if barstate.islast and bandzModulePo3
+    poClearAll()
+    PoLayout poLay = poLayoutCalc()
+    poRenderLanes(poLay)
+    poRenderLevels(poLay)
+    poRenderProfile()
+    poRenderSmt()
+    poRenderOrders()
+    if po3ShowTable
+        poUpdateMinimal()
+    if poShowSigPanel
+        poUpdateSigPanel()

@@ -32,6 +32,22 @@ def risk_usd(entry, sl, contract_size, lot, quote_to_usd=1.0):
     return abs(entry - sl) * contract_size * lot * quote_to_usd
 
 
+def scale_leg_targets(entry, direction, sl_pips, tp1_pips, tp_pips, pip):
+    """SL/TP for a two-leg scale-out: leg A takes TP1, leg B runs to TP2."""
+    if not 0.0 < tp1_pips < tp_pips:
+        raise ValueError("tp1_pips harus > 0 dan < tp_pips")
+    sl, _ = sl_tp(entry, direction, sl_pips, 0.0, pip)
+    _, tp1 = sl_tp(entry, direction, 0.0, tp1_pips, pip)
+    _, tp2 = sl_tp(entry, direction, 0.0, tp_pips, pip)
+    return [{"role": "a", "sl": sl, "tp": tp1},
+            {"role": "b", "sl": sl, "tp": tp2}]
+
+
+def runner_goes_breakeven(leg_a_status):
+    """Only a TP1 fill (not a stop or an early BE) arms the runner's BE move."""
+    return leg_a_status == "TP"
+
+
 def be_price(entry, direction, spread_pips, buffer_pips, pip, digits):
     sign = 1 if direction == "long" else -1
     return round_price(entry + sign * (spread_pips + buffer_pips) * pip, digits)

@@ -5,6 +5,9 @@ DEMO account. Risk is capped by a hard SL per position, breakeven at +1R,
 a daily loss guard, session filter and news blackout, but losses are still
 possible: no grid or breakeven setup guarantees profit.
 
+The optional --scale-out mode opens two legs instead of one: leg A takes
+TP1 and leg B runs to TP2 with its SL moved to breakeven once leg A fills.
+
 Usage:
     python scripts/mt5_grid_hft.py --once
     python scripts/mt5_grid_hft.py --interval 1
@@ -32,6 +35,8 @@ from grid_core import (
     pip_size,
     risk_usd,
     round_price,
+    runner_goes_breakeven,
+    scale_leg_targets,
     should_breakeven_dist,
     sl_tp,
     within_chase,
@@ -311,6 +316,35 @@ def send_sltp(position, sl, tp):
     return mt5.order_send(request)
 
 
+def close_reason(ticket):
+    """TP/SL/OTHER for a closed position ticket, or None while history is not ready."""
+    deals = mt5.history_deals_get(position=int(ticket))
+    if not deals:
+        return None
+    for deal in deals:
+        entry = int(getattr(deal, "entry", -1))
+        if entry in (mt5.DEAL_ENTRY_OUT, mt5.DEAL_ENTRY_OUT_BY):
+            reason = int(getattr(deal, "reason", -1))
+            if reason == mt5.DEAL_REASON_TP:
+                return "TP"
+            if reason == mt5.DEAL_REASON_SL:
+                return "SL"
+            return "OTHER"
+    return None
+
+
+def detect_ticket(result, symbol_name, known):
+    """Position ticket of a just-filled market order (two legs fire back to back)."""
+    order = int(getattr(result, "order", 0) or 0)
+    current = [p for p in magic_positions() if p.symbol == symbol_name]
+    if any(p.ticket == order for p in current):
+        return order
+    fresh = [p for p in current if p.ticket not in known]
+    if fresh:
+        return max(fresh, key=lambda p: p.time).ticket
+    return order
+
+
 def open_real(args, state, ctx, direction, level, now, day, factor=1.0):
     info, pip = ctx["info"], ctx["pip"]
     entry = ctx["ask"] if direction == "long" else ctx["bid"]
@@ -358,6 +392,120 @@ def open_real(args, state, ctx, direction, level, now, day, factor=1.0):
     return True
 
 
+def open_real_scale(args, state, ctx, direction, level, now, day, factor=1.0):
+    info, pip = ctx["info"], ctx["pip"]
+    entry = ctx["ask"] if direction == "long" else ctx["bid"]
+    legs = scale_leg_targets(entry, direction, args.sl_pips * factor,
+                             args.tp1_pips * factor, args.tp_pips * factor, pip)
+    stops = float(getattr(info, "trade_stops_level", 0) or 0) * info.point
+    for leg in legs:
+        leg["sl"] = round_price(leg["sl"], info.digits)
+        leg["tp"] = round_price(leg["tp"], info.digits)
+        if abs(entry - leg["sl"]) < stops or abs(leg["tp"] - entry) < stops:
+            say(f"SKIP {ctx['pair']}: SL/TP leg {leg['role']} lebih dekat dari trade_stops_level.")
+            return False
+    lot = round_volume(args.lot, info)
+    known = {p.ticket for p in magic_positions()}
+    state["scale_seq"] = int(state.get("scale_seq") or 0) + 1
+    group = f"{ctx['symbol']}-{now:%Y%m%d%H%M%S}-{state['scale_seq']}"
+    tickets, fills, total_risk = {}, {}, 0.0
+    for leg in legs:
+        result, price = send_market(ctx["symbol"], info, direction, lot, leg["sl"], leg["tp"],
+                                    args.deviation)
+        if result is None or result.retcode not in (mt5.TRADE_RETCODE_DONE,
+                                                    mt5.TRADE_RETCODE_PLACED):
+            code = getattr(result, "retcode", "")
+            append_log(args.log, log_row(
+                "SEND", "OPEN", pair=ctx["pair"], symbol=ctx["symbol"],
+                direction="BUY" if direction == "long" else "SELL", lot=lot,
+                price=fmt(entry, info.digits), sl=fmt(leg["sl"], info.digits),
+                tp=fmt(leg["tp"], info.digits), level=fmt(level, info.digits),
+                retcode=code, status="REJECTED", note=f"scale {group} leg {leg['role']}",
+            ))
+            say(f"SCALE REJECTED {ctx['pair']} leg {leg['role']} retcode={code}",
+                key=f"rej-{ctx['pair']}", every=10)
+            break
+        ticket = detect_ticket(result, ctx["symbol"], known)
+        known.add(ticket)
+        tickets[leg["role"]] = ticket
+        fills[leg["role"]] = price or entry
+        risk = risk_usd(fills[leg["role"]], leg["sl"], info.trade_contract_size, lot,
+                        quote_to_usd(info, ctx["mid"]))
+        total_risk += risk
+        state["be"][str(ticket)] = {
+            "pair": ctx["pair"], "be_done": False, "attempts": 0, "next_try": "",
+            "risk_dist": abs(fills[leg["role"]] - leg["sl"]), "factor": factor,
+            "scale_role": leg["role"], "scale_group": group,
+        }
+        append_log(args.log, log_row(
+            "SEND", "OPEN", pair=ctx["pair"], symbol=ctx["symbol"],
+            direction="BUY" if direction == "long" else "SELL", lot=lot,
+            price=fmt(fills[leg["role"]], info.digits), sl=fmt(leg["sl"], info.digits),
+            tp=fmt(leg["tp"], info.digits), level=fmt(level, info.digits),
+            risk=f"{risk:.2f}", spread=f"{ctx['spread_pips']:.1f}", retcode=result.retcode,
+            ticket=ticket, status="SENT", note=f"scale {group} leg {leg['role']}",
+        ))
+        print(f"SENT {ctx['pair']} {'BUY' if direction == 'long' else 'SELL'} leg {leg['role']} "
+              f"lot={lot} entry={fmt(fills[leg['role']], info.digits)} "
+              f"SL={fmt(leg['sl'], info.digits)} TP={fmt(leg['tp'], info.digits)} "
+              f"risk=${risk:.2f} ticket={ticket}", flush=True)
+    if not tickets:
+        return False
+    state["scale"][group] = {
+        "pair": ctx["pair"], "symbol": ctx["symbol"], "dir": direction,
+        "leg_a": tickets.get("a"), "leg_b": tickets.get("b"),
+        "tp1": legs[0]["tp"], "tp": legs[1]["tp"], "sl": legs[0]["sl"],
+        "entry": fills.get("a") or entry, "runner_be_done": False, "tries": 0,
+        "opened_at": now.isoformat(timespec="seconds"),
+    }
+    day["trades"] = int(day.get("trades") or 0) + 1
+    state["last_trade"][ctx["pair"]] = now.isoformat(timespec="seconds")
+    block_level(day, ctx["pair"], level, info.digits)
+    print(f"SENT SCALE {ctx['pair']} legs={len(tickets)} total_risk=${total_risk:.2f}",
+          flush=True)
+    return True
+
+
+def open_paper_scale(args, state, ctx, direction, level, now, day, factor=1.0):
+    info, pip = ctx["info"], ctx["pip"]
+    entry = ctx["ask"] if direction == "long" else ctx["bid"]
+    legs = scale_leg_targets(entry, direction, args.sl_pips * factor,
+                             args.tp1_pips * factor, args.tp_pips * factor, pip)
+    seq = int(state.get("paper_seq") or 0)
+    group = f"paper-{ctx['symbol']}-{now:%Y%m%d%H%M%S}-{seq + 1}"
+    total_risk = 0.0
+    for leg in legs:
+        seq += 1
+        sl = round_price(leg["sl"], info.digits)
+        tp = round_price(leg["tp"], info.digits)
+        risk = risk_usd(entry, sl, info.trade_contract_size, args.lot,
+                        quote_to_usd(info, ctx["mid"]))
+        total_risk += risk
+        state["paper"].append({
+            "id": seq, "pair": ctx["pair"], "symbol": ctx["symbol"], "dir": direction,
+            "lot": args.lot, "entry": entry, "sl": sl, "tp": tp, "level": level,
+            "opened_at": now.isoformat(timespec="seconds"), "be_done": False,
+            "be_price": None, "risk_dist": abs(entry - sl), "factor": factor,
+            "role": leg["role"], "group": group,
+        })
+        append_log(args.log, log_row(
+            "DRY_RUN", "PAPER_OPEN", pair=ctx["pair"], symbol=ctx["symbol"],
+            direction="BUY" if direction == "long" else "SELL", lot=args.lot,
+            price=fmt(entry, info.digits), sl=fmt(sl, info.digits), tp=fmt(tp, info.digits),
+            level=fmt(level, info.digits), risk=f"{risk:.2f}",
+            spread=f"{ctx['spread_pips']:.1f}", status="PAPER",
+            note=f"scale {group} leg {leg['role']}",
+        ))
+    state["paper_seq"] = seq
+    day["trades"] = int(day.get("trades") or 0) + 1
+    state["last_trade"][ctx["pair"]] = now.isoformat(timespec="seconds")
+    block_level(day, ctx["pair"], level, info.digits)
+    print(f"PAPER_OPEN SCALE {ctx['pair']} 2 legs @{args.lot:g} "
+          f"TP1={args.tp1_pips:g}p TP2={args.tp_pips:g}p total_risk=${total_risk:.2f} "
+          f"group={group}", flush=True)
+    return True
+
+
 def open_paper(args, state, ctx, direction, level, now, day, factor=1.0):
     info, pip = ctx["info"], ctx["pip"]
     entry = ctx["ask"] if direction == "long" else ctx["bid"]
@@ -401,6 +549,8 @@ def manage_be(args, state, now):
         target = be_price(pos.price_open, direction, spread_pips, args.be_buffer_pips, pip, info.digits)
         rec = state["be"].setdefault(str(pos.ticket), {"pair": None, "be_done": False,
                                                        "attempts": 0, "next_try": ""})
+        if rec.get("scale_role") in ("a", "b"):
+            continue
         if rec.get("be_done"):
             continue
         moved = (
@@ -441,8 +591,88 @@ def manage_be(args, state, now):
                 key=f"be-{pos.ticket}", every=60)
 
 
+def manage_scale_real(args, state, positions, now):
+    groups = state.get("scale") or {}
+    if not groups:
+        return
+    by_ticket = {p.ticket: p for p in positions}
+    for group in groups.values():
+        if group.get("runner_be_done"):
+            continue
+        leg_a, leg_b = group.get("leg_a"), group.get("leg_b")
+        if not leg_a or not leg_b:
+            group["runner_be_done"] = True
+            continue
+        if leg_a in by_ticket:
+            continue
+        reason = close_reason(leg_a)
+        if reason is None:
+            group["tries"] = int(group.get("tries") or 0) + 1
+            if group["tries"] >= 3:
+                ctx = pair_context(group["pair"])
+                if ctx is not None:
+                    current = ctx["bid"] if group["dir"] == "long" else ctx["ask"]
+                    if group["dir"] == "long" and current >= group["tp1"]:
+                        reason = "TP"
+                    elif group["dir"] == "short" and current <= group["tp1"]:
+                        reason = "TP"
+            if reason is None:
+                if group["tries"] >= 6:
+                    group["runner_be_done"] = True
+                    say(f"SCALE {group['pair']}: riwayat leg A tidak terbaca; "
+                        f"runner tetap pakai SL awal.", key=f"scale-{group['pair']}", every=300)
+                continue
+        if not runner_goes_breakeven(reason):
+            group["runner_be_done"] = True
+            say(f"SCALE {group['pair']}: leg A tutup {reason}; runner tetap pakai SL awal.",
+                key=f"scale-{group['pair']}", every=300)
+            continue
+        pos = by_ticket.get(leg_b)
+        if pos is None:
+            group["runner_be_done"] = True
+            continue
+        info = mt5.symbol_info(pos.symbol)
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if info is None or tick is None or not tick.bid or not tick.ask:
+            continue
+        pip = pip_size(info.digits, info.point)
+        direction = "long" if pos.type == mt5.POSITION_TYPE_BUY else "short"
+        current = float(tick.bid if direction == "long" else tick.ask)
+        spread_pips = (float(tick.ask) - float(tick.bid)) / pip
+        target = be_price(pos.price_open, direction, spread_pips,
+                          args.be_buffer_pips, pip, info.digits)
+        stops = float(getattr(info, "trade_stops_level", 0) or 0) * info.point
+        if (direction == "long" and target > current - stops) or \
+                (direction == "short" and target < current + stops):
+            continue
+        result = send_sltp(pos, target, pos.tp)
+        if result is not None and result.retcode in (mt5.TRADE_RETCODE_DONE,
+                                                     mt5.TRADE_RETCODE_PLACED):
+            group["runner_be_done"] = True
+            append_log(args.log, log_row(
+                "SEND", "SCALE_BE", pair=group["pair"], symbol=pos.symbol,
+                direction="BUY" if direction == "long" else "SELL",
+                price=fmt(current, info.digits), sl=fmt(target, info.digits),
+                tp=fmt(pos.tp, info.digits), ticket=pos.ticket,
+                retcode=result.retcode, status="BE",
+                note=f"leg B setelah TP1 leg {leg_a}",
+            ))
+            print(f"SCALE_BE {group['pair']} leg B ticket={pos.ticket} "
+                  f"SL -> {fmt(target, info.digits)}", flush=True)
+        else:
+            code = getattr(result, "retcode", "")
+            say(f"SCALE_BE ditolak {group['pair']} ticket={pos.ticket} retcode={code}; coba lagi.",
+                key=f"scale-be-{pos.ticket}", every=60)
+    for gid, group in list(groups.items()):
+        a, b = group.get("leg_a"), group.get("leg_b")
+        if (a is None or a not in by_ticket) and (b is None or b not in by_ticket) \
+                and group.get("runner_be_done"):
+            groups.pop(gid, None)
+
+
 def manage_paper(args, state, contexts, now):
     kept = []
+    closed_tp1 = []
     for pos in state.get("paper") or []:
         ctx = contexts.get(pos.get("pair"))
         if ctx is None:
@@ -453,8 +683,8 @@ def manage_paper(args, state, contexts, now):
         current = ctx["bid"] if direction == "long" else ctx["ask"]
         label = "BUY" if direction == "long" else "SELL"
         risk_dist = float(pos.get("risk_dist") or (args.be_trigger_pips * pip))
-        if not pos.get("be_done") and should_breakeven_dist(
-                direction, pos["entry"], current, risk_dist):
+        if pos.get("role") not in ("a", "b") and not pos.get("be_done") and \
+                should_breakeven_dist(direction, pos["entry"], current, risk_dist):
             target = be_price(pos["entry"], direction, ctx["spread_pips"],
                               args.be_buffer_pips, pip, info.digits)
             pos["sl"] = target
@@ -493,7 +723,32 @@ def manage_paper(args, state, contexts, now):
             note=f"pnl=${pnl_usd:.2f}",
         ))
         print(f"PAPER_CLOSE {pos['pair']} {note} pnl=${pnl_usd:.2f}", flush=True)
+        if note == "TP" and pos.get("role") == "a" and pos.get("group"):
+            closed_tp1.append(pos)
     state["paper"] = kept
+    for leg_a in closed_tp1:
+        runner = next((p for p in kept if p.get("group") == leg_a["group"]
+                       and p.get("role") == "b"), None)
+        if runner is None or runner.get("be_done"):
+            continue
+        ctx = contexts.get(runner.get("pair"))
+        if ctx is None:
+            continue
+        info, pip = ctx["info"], ctx["pip"]
+        target = be_price(runner["entry"], runner["dir"], ctx["spread_pips"],
+                          args.be_buffer_pips, pip, info.digits)
+        runner["sl"] = target
+        runner["be_done"] = True
+        runner["be_price"] = target
+        append_log(args.log, log_row(
+            "DRY_RUN", "PAPER_SCALE_BE", pair=runner["pair"], symbol=runner["symbol"],
+            direction="BUY" if runner["dir"] == "long" else "SELL",
+            price=fmt(target, info.digits), sl=fmt(target, info.digits),
+            tp=fmt(runner["tp"], info.digits), level=fmt(runner.get("level", 0), info.digits),
+            status="BE", note=f"leg B setelah TP1 leg {leg_a['id']}",
+        ))
+        print(f"PAPER_SCALE_BE {runner['pair']} group={runner['group']} "
+              f"SL -> {fmt(target, info.digits)}", flush=True)
 
 
 def sync_closes(args, state, positions):
@@ -520,9 +775,13 @@ def maybe_enter(args, state, ctx, day, now, news, live, open_symbols, open_count
         return False
     if signal is None:
         return False
+    if int(day.get("trades") or 0) >= args.max_trades_per_day:
+        say(f"SKIP {pair}: batas {args.max_trades_per_day} trade/hari tercapai.",
+            key="maxtrades", every=60)
+        return False
     if ctx["symbol"] in open_symbols or pair in {p.get("pair") for p in state.get("paper") or []}:
         return False
-    if open_count >= args.max_open:
+    if open_count + (2 if args.scale_out else 1) > args.max_open:
         say(f"SKIP {pair}: batas {args.max_open} posisi terbuka.", key="maxopen", every=30)
         return False
     last = parse_dt(state.get("last_trade", {}).get(pair))
@@ -557,7 +816,11 @@ def maybe_enter(args, state, ctx, day, now, news, live, open_symbols, open_count
         say(f"INFO {pair}: mode volatilitas pasca-news '{vol_event}', grid/SL/TP x{factor:g}.",
             key=f"vol-{pair}", every=300)
     if live:
+        if args.scale_out:
+            return open_real_scale(args, state, ctx, direction, level, now, day, factor)
         return open_real(args, state, ctx, direction, level, now, day, factor)
+    if args.scale_out:
+        return open_paper_scale(args, state, ctx, direction, level, now, day, factor)
     return open_paper(args, state, ctx, direction, level, now, day, factor)
 
 
@@ -598,6 +861,11 @@ def parse_args():
     parser.add_argument("--grid-pips", type=float, default=15.0)
     parser.add_argument("--sl-pips", type=float, default=15.0)
     parser.add_argument("--tp-pips", type=float, default=30.0)
+    parser.add_argument("--scale-out", action="store_true",
+                        help="dua leg: TP1 lalu SL leg B ke BE, sisa ke TP2 "
+                             "(lot total 2x lipat, tiap leg dihitung di max-open)")
+    parser.add_argument("--tp1-pips", type=float, default=None,
+                        help="jarak TP leg pertama saat --scale-out (default = --sl-pips)")
     parser.add_argument("--be-trigger-pips", type=float, default=15.0)
     parser.add_argument("--be-buffer-pips", type=float, default=2.0)
     parser.add_argument("--max-spread-pips", type=float, default=1.5)
@@ -630,11 +898,18 @@ def main():
     unknown = [p for p in pairs if p not in PAIR_SYMBOLS]
     if unknown:
         raise SystemExit(f"Pair tidak dikenal: {', '.join(unknown)}")
+    if args.scale_out:
+        if args.tp1_pips is None:
+            args.tp1_pips = args.sl_pips
+        if not 0 < args.tp1_pips < args.tp_pips:
+            raise SystemExit("--tp1-pips harus > 0 dan < --tp-pips")
 
     state = load_json(args.state, {}) or {}
     state.setdefault("be", {})
     state.setdefault("paper", [])
     state.setdefault("paper_seq", 0)
+    state.setdefault("scale", {})
+    state.setdefault("scale_seq", 0)
     state.setdefault("last_trade", {})
     state.setdefault("open_tickets", [])
     state["pairs"] = {}
@@ -644,6 +919,10 @@ def main():
           f"TP={args.tp_pips:g}p BE=+{args.be_trigger_pips:g}p lot={args.lot:g} | "
           f"max {args.max_open} open, {args.max_trades_per_day} trade/hari, "
           f"rugi max ${args.max_daily_loss:g}/hari", flush=True)
+    if args.scale_out:
+        print(f"SCALE-OUT: 2 leg @ {args.lot:g} (total {2 * args.lot:g}); "
+              f"TP1 +{args.tp1_pips:g}p -> SL leg B ke BE -> TP2 +{args.tp_pips:g}p. "
+              f"Risiko per sinyal ~2x dan max-open menghitung tiap leg.", flush=True)
     print(f"News: {args.news} | blackout ±{args.news_window} mnt | "
           f"volatilitas x{args.news_vol_factor:g} selama {args.news_vol_window} mnt "
           f"setelah event impact>=3", flush=True)
@@ -690,6 +969,8 @@ def main():
             positions = magic_positions()
             if live:
                 manage_be(args, state, now)
+                if state.get("scale"):
+                    manage_scale_real(args, state, positions, now)
             sync_closes(args, state, positions)
             if not live:
                 manage_paper(args, state, contexts, now)
@@ -702,7 +983,7 @@ def main():
                 if maybe_enter(args, state, ctx, day, now, news, live,
                                open_symbols, open_count):
                     entered += 1
-                    open_count += 1
+                    open_count += 2 if args.scale_out else 1
                     if live:
                         open_symbols.add(ctx["symbol"])
             if entered:

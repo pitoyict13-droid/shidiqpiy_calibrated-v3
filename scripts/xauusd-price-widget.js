@@ -14,7 +14,17 @@
       }
     } catch (e) {}
 
-    // 2. Fallback: Ambil dari file market.json (hasil GitHub Actions)
+    // 2. Fallback live: CoinGecko PAXG (1 troy oz gold-backed token)
+    try {
+      const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=pax-gold&vs_currencies=usd', { cache: 'no-store' });
+      if (r.ok) {
+        const j = await r.json();
+        const p = Number(j && j['pax-gold'] && j['pax-gold'].usd);
+        if (Number.isFinite(p) && p > 0) return p;
+      }
+    } catch (e) {}
+
+    // 3. Fallback: Ambil dari file market.json (hasil GitHub Actions)
     try {
       const r = await fetch(`data/market.json?v=${Date.now()}`, { cache: 'no-store' });
       if (r.ok) {

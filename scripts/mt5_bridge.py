@@ -12,6 +12,7 @@ Usage:
 import argparse
 import csv
 import json
+import re
 import time
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -161,7 +162,71 @@ def live_prices(pair):
     return {"bid": float(tick.bid), "ask": float(tick.ask)}
 
 
+def parse_metric(value):
+    if value is None:
+        return None
+    s = str(value).strip()
+    if s in ("", "-", "—"):
+        return None
+    raw = re.sub(r"^[$€£¥]", "", s.replace(",", ""))
+    m = re.match(r"^([+-]?\d*\.?\d+)\s*([KMBT])?%?$", raw, re.IGNORECASE)
+    if m:
+        n = float(m.group(1))
+        suf = (m.group(2) or "").upper()
+        n *= {"K": 1e3, "M": 1e6, "B": 1e9, "T": 1e12}.get(suf, 1.0)
+        return n
+    cleaned = re.sub(r"[^0-9.\-]", "", raw)
+    try:
+        return float(cleaned) if cleaned else None
+    except ValueError:
+        return None
+
+
+def fundamental_signal(event, pair):
+    name = str(event.get("Event") or "").lower()
+    country = str(event.get("Country") or "USD").strip().upper()
+    actual = parse_metric(event.get("Actual"))
+    forecast = parse_metric(event.get("Forecast"))
+    if actual is None or forecast is None:
+        return None
+    surprise = actual - forecast
+    threshold = min(max(abs(forecast) * 0.005, 0.01), 0.5)
+    if abs(surprise) < threshold:
+        return None
+
+    labor_or_oil_weak_if_high = re.search(
+        r"unemployment rate|unemployment|initial claims|continuing claims|jobless claims|jobless|claimant count|crude oil inventories|crude oil stock|api crude|distillate|gasoline stocks",
+        name,
+    )
+    strong_if_high = re.search(
+        r"cpi|core cpi|inflation|ppi|core ppi|pce|pmi|ism|retail sales|consumer confidence|consumer sentiment|michigan|business confidence|sentix|zew|ifo|fed funds|interest rate|rate decision|bank rate|cash rate|policy rate|jolts|durable goods|factory orders|industrial production|manufacturing production|wholesale inventories|nonfarm payroll|non-farm payroll|non farm payroll|nfp|payroll|adp|employment|average hourly earnings|wage|gdp|building permits|housing starts|existing home sales|new home sales|pending home sales|trade balance|balance of trade|current account",
+        name,
+    )
+    if labor_or_oil_weak_if_high:
+        currency_bullish = surprise < 0
+    elif strong_if_high:
+        currency_bullish = surprise > 0
+    else:
+        return None
+
+    if country == "USD":
+        # USD bullish -> XAU/USD, BTC/USD, ETH/USD, EUR/USD, GBP/USD, AUD/USD = short; USD/* = long
+        if pair.startswith("USD/"):
+            direction = "long" if currency_bullish else "short"
+        else:
+            direction = "short" if currency_bullish else "long"
+    else:
+        if pair.startswith("USD/"):
+            direction = "short" if currency_bullish else "long"
+        else:
+            direction = "long" if currency_bullish else "short"
+    pct_diff = ((actual - forecast) / abs(forecast) * 100) if forecast else surprise
+    return {"dir": direction, "base": forecast, "change_pct": pct_diff, "source": "fundamental"}
+
+
 def momentum(kind, pair, snap, bid):
+    if not snap:
+        return None
     if kind == "gold":
         base = to_float(snap.get("gold"))
     elif kind == "crypto":
@@ -173,7 +238,11 @@ def momentum(kind, pair, snap, bid):
     change = (bid - base) / base * 100
     if abs(change) < 0.1:
         return None
-    return {"dir": "long" if change > 0 else "short", "base": base, "change_pct": change}
+    return {"dir": "long" if change > 0 else "short", "base": base, "change_pct": change, "source": "momentum"}
+
+
+def resolve_post_news_signal(event, pair, snap, bid):
+    return fundamental_signal(event, pair) or momentum(kind_for(pair), pair, snap, bid)
 
 
 def levels(pair, direction, entry):
@@ -239,14 +308,15 @@ def scan(args, state):
             continue
         key = f"{ev.get('Date')}|{ev.get('Event')}"
         snap = normalize_snapshot(snapshots.get(key))
-        if not snap:
+        has_actual = parse_metric(ev.get("Actual")) is not None and parse_metric(ev.get("Forecast")) is not None
+        if not snap and not has_actual:
             missing_snap += 1
             continue
         for pair in event_pairs(ev.get("Country")):
             prices = live_prices(pair)
             if not prices:
                 continue
-            mom = momentum(kind_for(pair), pair, snap, prices["bid"])
+            mom = resolve_post_news_signal(ev, pair, snap, prices["bid"])
             if not mom:
                 continue
             sig_key = f"{key}|{pair}|{mom['dir']}"

@@ -75,6 +75,34 @@ class BreakevenTests(unittest.TestCase):
         self.assertFalse(g.within_chase(1.15999, 1.1595, 3, 0.0001))
 
 
+class ScaleOutTests(unittest.TestCase):
+    def test_leg_targets_long(self):
+        legs = g.scale_leg_targets(1.1600, "long", 15, 15, 30, 0.0001)
+        self.assertEqual([leg["role"] for leg in legs], ["a", "b"])
+        self.assertAlmostEqual(legs[0]["sl"], 1.1585)
+        self.assertAlmostEqual(legs[0]["tp"], 1.1615)
+        self.assertAlmostEqual(legs[1]["sl"], 1.1585)
+        self.assertAlmostEqual(legs[1]["tp"], 1.1630)
+
+    def test_leg_targets_short_jpy(self):
+        legs = g.scale_leg_targets(150.00, "short", 15, 10, 30, 0.01)
+        self.assertAlmostEqual(legs[0]["sl"], 150.15)
+        self.assertAlmostEqual(legs[0]["tp"], 149.90)
+        self.assertAlmostEqual(legs[1]["sl"], 150.15)
+        self.assertAlmostEqual(legs[1]["tp"], 149.70)
+
+    def test_leg_targets_reject_bad_tp1(self):
+        with self.assertRaises(ValueError):
+            g.scale_leg_targets(1.1600, "long", 15, 30, 30, 0.0001)
+        with self.assertRaises(ValueError):
+            g.scale_leg_targets(1.1600, "long", 15, 0, 30, 0.0001)
+
+    def test_runner_breakeven_only_after_tp(self):
+        self.assertTrue(g.runner_goes_breakeven("TP"))
+        self.assertFalse(g.runner_goes_breakeven("SL"))
+        self.assertFalse(g.runner_goes_breakeven("BE"))
+
+
 class GuardTests(unittest.TestCase):
     def test_session_weekday(self):
         monday = datetime(2026, 10, 26, 12, 0, tzinfo=timezone.utc)
