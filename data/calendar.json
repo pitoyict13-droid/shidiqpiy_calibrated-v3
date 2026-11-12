@@ -2359,8 +2359,8 @@
     "Country": "JPY",
     "Importance": 1,
     "Forecast": "0.3%",
-    "Previous": "-0.3%",
-    "Actual": "",
+    "Previous": "-0.2%",
+    "Actual": "0.7%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -2372,7 +2372,7 @@
     "Importance": 1,
     "Forecast": "6.5%",
     "Previous": "6.8%",
-    "Actual": "",
+    "Actual": "7.1%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -2384,7 +2384,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "1481.7B",
-    "Actual": "",
+    "Actual": "1371.1B",
     "Unit": "¥",
     "Scale": "B",
     "Source": "TradingView"
@@ -2396,7 +2396,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "1077.7B",
-    "Actual": "",
+    "Actual": "-643.9B",
     "Unit": "¥",
     "Scale": "B",
     "Source": "TradingView"
@@ -2407,8 +2407,8 @@
     "Country": "GBP",
     "Importance": 2,
     "Forecast": "-34",
-    "Previous": "-32",
-    "Actual": "",
+    "Previous": "-34",
+    "Actual": "-36",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -4939,7 +4939,7 @@
     "Country": "JPY",
     "Importance": 2,
     "Forecast": "",
-    "Previous": "",
+    "Previous": "1371.1B",
     "Actual": "",
     "Unit": "¥",
     "Scale": "B",
@@ -4951,7 +4951,7 @@
     "Country": "JPY",
     "Importance": 2,
     "Forecast": "",
-    "Previous": "",
+    "Previous": "-643.9B",
     "Actual": "",
     "Unit": "¥",
     "Scale": "B",
@@ -6719,6 +6719,42 @@
     "Actual": "",
     "Unit": "cf",
     "Scale": "B",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-26T00:30:00.000Z",
+    "Event": "Building Capital Expenditure QoQ",
+    "Country": "AUD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "2.1%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-26T00:30:00.000Z",
+    "Event": "Plant Machinery Capital Expenditure QoQ",
+    "Country": "AUD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "-8.9%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-26T00:30:00.000Z",
+    "Event": "Private Capital Expenditure QoQ",
+    "Country": "AUD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "-3.6%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
     "Source": "TradingView"
   }
 ]
