@@ -2938,7 +2938,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "-27B",
-    "Actual": "",
+    "Actual": "-404B",
     "Unit": "$",
     "Scale": "B",
     "Source": "TradingView"
@@ -2960,7 +2960,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "56.5",
-    "Actual": "",
+    "Actual": "54.9",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -2972,7 +2972,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "6.74815T",
-    "Actual": "",
+    "Actual": "6.75887T",
     "Unit": "$",
     "Scale": "T",
     "Source": "TradingView"
@@ -5347,7 +5347,7 @@
     "Country": "USD",
     "Importance": 1,
     "Forecast": "",
-    "Previous": "6.74815T",
+    "Previous": "6.75887T",
     "Actual": "",
     "Unit": "$",
     "Scale": "T",
