@@ -5054,6 +5054,30 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-19T09:00:00.000Z",
+    "Event": "Current Account",
+    "Country": "EUR",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "7.7B",
+    "Actual": "",
+    "Unit": "€",
+    "Scale": "B",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-19T09:00:00.000Z",
+    "Event": "Current Account s.a",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "8.709B",
+    "Actual": "",
+    "Unit": "€",
+    "Scale": "B",
+    "Source": "TradingView"
+  },
+  {
     "Date": "2026-11-19T10:00:00.000Z",
     "Event": "Construction Output MoM",
     "Country": "EUR",
