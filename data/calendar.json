@@ -3518,6 +3518,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-16T05:00:00-05:00",
+    "Event": "FOMC Member Barr Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-16T11:00:00.000Z",
     "Event": "Reserve Assets",
     "Country": "EUR",
@@ -3698,6 +3708,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-16T09:05:00-05:00",
+    "Event": "FOMC Member Williams Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-16T17:00:00.000Z",
     "Event": "NOPA Soybean Oil Stocks",
     "Country": "USD",
@@ -3708,6 +3728,16 @@
     "Unit": "",
     "Scale": "B",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-16T17:50:00-05:00",
+    "Event": "RBA Gov Bullock Speaks",
+    "Country": "AUD",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-17T02:00:00.000Z",
@@ -3902,6 +3932,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-17T07:30:00-05:00",
+    "Event": "FOMC Member Musalem Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-17T13:15:00.000Z",
     "Event": "Housing Starts",
     "Country": "CAD",
@@ -4022,6 +4062,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-17T09:10:00-05:00",
+    "Event": "FOMC Member Waller Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-17T14:15:00.000Z",
     "Event": "Manufacturing Production MoM",
     "Country": "USD",
@@ -4058,6 +4108,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-17T09:30:00-05:00",
+    "Event": "FOMC Member Hammack Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-17T15:00:00.000Z",
     "Event": "Business Inventories MoM",
     "Country": "USD",
@@ -4092,6 +4152,16 @@
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-17T14:25:00-05:00",
+    "Event": "FOMC Member Williams Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-17T21:30:00.000Z",
@@ -4430,6 +4500,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-18T02:30:00-05:00",
+    "Event": "BOE Gov Bailey Speaks",
+    "Country": "GBP",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-18T10:00:00.000Z",
     "Event": "Core Inflation Rate MoM Final",
     "Country": "EUR",
@@ -4670,6 +4750,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-18T09:25:00-05:00",
+    "Event": "ECB President Lagarde Speaks",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-18T15:00:00.000Z",
     "Event": "Pending Home Sales Index",
     "Country": "USD",
@@ -4692,6 +4782,16 @@
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-18T10:00:00-05:00",
+    "Event": "BOE Gov Bailey Speaks",
+    "Country": "GBP",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-18T15:30:00.000Z",
@@ -4874,6 +4974,36 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-18T13:35:00-05:00",
+    "Event": "FOMC Member Barr Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
+    "Date": "2026-11-18T14:00:00-05:00",
+    "Event": "FOMC Meeting Minutes",
+    "Country": "USD",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
+    "Date": "2026-11-18T14:30:00-05:00",
+    "Event": "FOMC Member Williams Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-18T21:00:00.000Z",
     "Event": "Overall Net Capital Flows",
     "Country": "USD",
@@ -4896,6 +5026,16 @@
     "Unit": "$",
     "Scale": "B",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-18T16:15:00-05:00",
+    "Event": "FOMC Member Kashkari Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-18T21:45:00.000Z",
@@ -5306,6 +5446,26 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-19T08:30:00-05:00",
+    "Event": "ECB President Lagarde Speaks",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
+    "Date": "2026-11-19T08:50:00-05:00",
+    "Event": "FOMC Member Hammack Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-19T15:30:00.000Z",
     "Event": "EIA Natural Gas Stocks Change",
     "Country": "USD",
@@ -5342,6 +5502,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-19T12:30:00-05:00",
+    "Event": "FOMC Member Goolsbee Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-19T18:00:00.000Z",
     "Event": "10-Year TIPS Auction Allotted at High",
     "Country": "USD",
@@ -5376,6 +5546,26 @@
     "Unit": "$",
     "Scale": "B",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-19T14:15:00-05:00",
+    "Event": "FOMC Member Barr Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
+    "Date": "2026-11-19T16:00:00-05:00",
+    "Event": "FOMC Member Barkin Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-19T21:30:00.000Z",
@@ -5498,6 +5688,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-19T18:30:00-05:00",
+    "Event": "FOMC Member Paulson Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-20T00:01:00.000Z",
     "Event": "Consumer Confidence Index",
     "Country": "GBP",
@@ -5556,6 +5756,26 @@
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-20T03:15:00-05:00",
+    "Event": "ECB President Lagarde Speaks",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
+    "Date": "2026-11-20T08:25:00-05:00",
+    "Event": "FOMC Member Waller Speaks",
+    "Country": "USD",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-20T13:30:00.000Z",
@@ -5664,6 +5884,16 @@
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-20T12:15:00-05:00",
+    "Event": "FOMC Member Cook Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-20T19:00:00.000Z",
