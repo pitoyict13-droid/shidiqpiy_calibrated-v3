@@ -1964,7 +1964,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "19500",
-    "Actual": "19750",
+    "Actual": "19250",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -4302,6 +4302,30 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-17T21:45:00.000Z",
+    "Event": "PPI Input QoQ",
+    "Country": "NZD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "2.9%",
+    "Actual": "0.7%",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-17T21:45:00.000Z",
+    "Event": "PPI Output QoQ",
+    "Country": "NZD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "1.7%",
+    "Actual": "0.8%",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
     "Date": "2026-11-17T23:50:00.000Z",
     "Event": "Exports YoY",
     "Country": "JPY",
@@ -4368,7 +4392,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "144.1",
-    "Actual": "",
+    "Actual": "144.9",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -4380,7 +4404,7 @@
     "Importance": 1,
     "Forecast": "3.8%",
     "Previous": "3.7%",
-    "Actual": "",
+    "Actual": "3.7%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4392,7 +4416,7 @@
     "Importance": 2,
     "Forecast": "0.2%",
     "Previous": "0%",
-    "Actual": "",
+    "Actual": "0.2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4404,7 +4428,7 @@
     "Importance": 3,
     "Forecast": "0.3%",
     "Previous": "0.2%",
-    "Actual": "",
+    "Actual": "0.3%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4416,7 +4440,7 @@
     "Importance": 2,
     "Forecast": "2.8%",
     "Previous": "2.8%",
-    "Actual": "",
+    "Actual": "2.8%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4428,7 +4452,7 @@
     "Importance": 2,
     "Forecast": "0.5%",
     "Previous": "0.4%",
-    "Actual": "",
+    "Actual": "0.5%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4440,7 +4464,7 @@
     "Importance": 3,
     "Forecast": "3.6%",
     "Previous": "3.5%",
-    "Actual": "",
+    "Actual": "3.6%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4452,7 +4476,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "0.1%",
-    "Actual": "",
+    "Actual": "0.5%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4464,7 +4488,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "3.9%",
-    "Actual": "",
+    "Actual": "4.1%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4476,7 +4500,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "0.2%",
-    "Actual": "",
+    "Actual": "0.1%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4488,7 +4512,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "2.9%",
-    "Actual": "",
+    "Actual": "2.9%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4500,7 +4524,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "8.3%",
-    "Actual": "",
+    "Actual": "10.8%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4512,7 +4536,7 @@
     "Importance": 1,
     "Forecast": "0.7%",
     "Previous": "1.5%",
-    "Actual": "",
+    "Actual": "2.2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4524,7 +4548,7 @@
     "Importance": 1,
     "Forecast": "0.6%",
     "Previous": "0.8%",
-    "Actual": "",
+    "Actual": "0.4%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4535,8 +4559,8 @@
     "Country": "GBP",
     "Importance": 1,
     "Forecast": "",
-    "Previous": "4.6%",
-    "Actual": "",
+    "Previous": "4.7%",
+    "Actual": "5.1%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4558,7 +4582,7 @@
     "Importance": 1,
     "Forecast": "0.3%",
     "Previous": "0.2%",
-    "Actual": "",
+    "Actual": "0.3%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4570,7 +4594,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "104.29",
-    "Actual": "",
+    "Actual": "104.78",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -4582,7 +4606,7 @@
     "Importance": 1,
     "Forecast": "2.5%",
     "Previous": "2.5%",
-    "Actual": "",
+    "Actual": "2.6%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4594,7 +4618,7 @@
     "Importance": 1,
     "Forecast": "0.4%",
     "Previous": "0.6%",
-    "Actual": "",
+    "Actual": "0.5%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4606,7 +4630,7 @@
     "Importance": 1,
     "Forecast": "4%",
     "Previous": "3.8%",
-    "Actual": "",
+    "Actual": "4%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4618,7 +4642,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "0.2%",
-    "Actual": "",
+    "Actual": "0.3%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4630,7 +4654,7 @@
     "Importance": 1,
     "Forecast": "2.2%",
     "Previous": "2.2%",
-    "Actual": "",
+    "Actual": "2.2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4641,8 +4665,8 @@
     "Country": "EUR",
     "Importance": 1,
     "Forecast": "",
-    "Previous": "",
-    "Actual": "",
+    "Previous": "104.3",
+    "Actual": "104.78",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -8340,6 +8364,30 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "2.1%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-02T05:00:00.000Z",
+    "Event": "Consumer Confidence",
+    "Country": "JPY",
+    "Importance": 3,
+    "Forecast": "",
+    "Previous": "35",
+    "Actual": "",
+    "Unit": "",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-02T10:00:00.000Z",
+    "Event": "Unemployment Rate",
+    "Country": "EUR",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "6.5%",
     "Actual": "",
     "Unit": "%",
     "Scale": "",
