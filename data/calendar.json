@@ -5660,7 +5660,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "6.75887T",
-    "Actual": "",
+    "Actual": "6.74145T",
     "Unit": "$",
     "Scale": "T",
     "Source": "TradingView"
@@ -5672,7 +5672,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "102.8",
-    "Actual": "",
+    "Actual": "103",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -5683,8 +5683,8 @@
     "Country": "JPY",
     "Importance": 2,
     "Forecast": "",
-    "Previous": "",
-    "Actual": "",
+    "Previous": "102.3",
+    "Actual": "102.9",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -5696,7 +5696,7 @@
     "Importance": 2,
     "Forecast": "2.3%",
     "Previous": "2.1%",
-    "Actual": "",
+    "Actual": "2.2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -5708,7 +5708,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "2.4%",
-    "Actual": "",
+    "Actual": "2.2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -5720,7 +5720,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "0.4%",
-    "Actual": "",
+    "Actual": "0.5%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -5732,7 +5732,7 @@
     "Importance": 3,
     "Forecast": "",
     "Previous": "2.1%",
-    "Actual": "",
+    "Actual": "2.3%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -5744,7 +5744,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "102.2",
-    "Actual": "",
+    "Actual": "103.1",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -5756,7 +5756,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "0.2%",
-    "Actual": "",
+    "Actual": "0.68%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -5768,7 +5768,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "2.1%",
-    "Actual": "",
+    "Actual": "2.18%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -5790,7 +5790,7 @@
     "Importance": 2,
     "Forecast": "-22",
     "Previous": "-24",
-    "Actual": "",
+    "Actual": "-22",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -7595,7 +7595,7 @@
     "Country": "USD",
     "Importance": 1,
     "Forecast": "",
-    "Previous": "6.75887T",
+    "Previous": "6.74145T",
     "Actual": "",
     "Unit": "$",
     "Scale": "T",
@@ -9111,6 +9111,18 @@
     "Actual": "",
     "Unit": "cf",
     "Scale": "B",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-03T21:30:00.000Z",
+    "Event": "Fed Balance Sheet",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "6.74145T",
+    "Actual": "",
+    "Unit": "$",
+    "Scale": "T",
     "Source": "TradingView"
   }
 ]
