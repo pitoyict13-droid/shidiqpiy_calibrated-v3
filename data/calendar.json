@@ -6186,6 +6186,16 @@
     "Source": "TradingView"
   },
   {
+    "Date": "2026-11-23T16:00:00-05:00",
+    "Event": "FOMC Member Williams Speaks",
+    "Country": "USD",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
+  },
+  {
     "Date": "2026-11-24T00:30:00.000Z",
     "Event": "S&P Global Services PMI Flash",
     "Country": "JPY",
@@ -6376,6 +6386,16 @@
     "Unit": "$",
     "Scale": "B",
     "Source": "TradingView"
+  },
+  {
+    "Date": "2026-11-24T12:25:00-05:00",
+    "Event": "BOC Gov Macklem Speaks",
+    "Country": "CAD",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Source": "ForexFactory"
   },
   {
     "Date": "2026-11-24T18:00:00.000Z",
