@@ -190,5 +190,37 @@
       "BTC/USD": 61829.51,
       "ETH/USD": 1749.52
     }
+  },
+  "2026-11-22T22:00:00.000Z|S&P Global Manufacturing PMI Flash": {
+    "capturedAt": "2026-11-22T20:58:51.755Z",
+    "gold": 3539,
+    "forex": {
+      "EUR": 0.911256,
+      "GBP": 0.763601,
+      "JPY": 158.747474,
+      "CHF": 0.840341,
+      "AUD": 1.507035,
+      "CAD": 1.433441
+    },
+    "crypto": {
+      "BTC/USD": 60926,
+      "ETH/USD": 1720.89
+    }
+  },
+  "2026-11-22T22:00:00.000Z|S&P Global Services PMI Flash": {
+    "capturedAt": "2026-11-22T20:58:51.755Z",
+    "gold": 3539,
+    "forex": {
+      "EUR": 0.911256,
+      "GBP": 0.763601,
+      "JPY": 158.747474,
+      "CHF": 0.840341,
+      "AUD": 1.507035,
+      "CAD": 1.433441
+    },
+    "crypto": {
+      "BTC/USD": 60926,
+      "ETH/USD": 1720.89
+    }
   }
 }
