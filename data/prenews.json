@@ -1,20 +1,4 @@
 {
-  "2026-11-16T10:00:00.000Z|Industrial Production MoM": {
-    "capturedAt": "2026-11-16T08:31:46.419Z",
-    "gold": 3863.719971,
-    "forex": {
-      "EUR": 0.906623,
-      "GBP": 0.756564,
-      "JPY": 159.784314,
-      "CHF": 0.839107,
-      "AUD": 1.475643,
-      "CAD": 1.426617
-    },
-    "crypto": {
-      "BTC/USD": 64588.05,
-      "ETH/USD": 1809.01
-    }
-  },
   "2026-11-17T21:30:00.000Z|API Crude Oil Stock Change": {
     "capturedAt": "2026-11-17T19:53:02.746Z",
     "gold": 3851.399902,
