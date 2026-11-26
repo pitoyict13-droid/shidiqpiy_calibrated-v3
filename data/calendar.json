@@ -7278,7 +7278,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "2.1%",
-    "Actual": "",
+    "Actual": "1.7%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -7290,7 +7290,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "-8.9%",
-    "Actual": "",
+    "Actual": "23.1%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -7302,7 +7302,7 @@
     "Importance": 1,
     "Forecast": "4.4%",
     "Previous": "-3.6%",
-    "Actual": "",
+    "Actual": "12.2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -10556,6 +10556,78 @@
     "Previous": "3.6%",
     "Actual": "",
     "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-09T23:50:00.000Z",
+    "Event": "PPI MoM",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "0.7%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-09T23:50:00.000Z",
+    "Event": "PPI YoY",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "7.1%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-09T23:50:00.000Z",
+    "Event": "BSI Large Manufacturing QoQ",
+    "Country": "JPY",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "7.6%",
+    "Actual": "",
+    "Unit": "%",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-09T23:50:00.000Z",
+    "Event": "Bond Investment by Foreigners",
+    "Country": "JPY",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Unit": "¥",
+    "Scale": "B",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-09T23:50:00.000Z",
+    "Event": "Foreign Stock Investment",
+    "Country": "JPY",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "",
+    "Actual": "",
+    "Unit": "¥",
+    "Scale": "B",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-10T00:01:00.000Z",
+    "Event": "RICS House Price Balance",
+    "Country": "GBP",
+    "Importance": 2,
+    "Forecast": "",
+    "Previous": "-36",
+    "Actual": "",
+    "Unit": "",
     "Scale": "",
     "Source": "TradingView"
   }
