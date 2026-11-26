@@ -162,7 +162,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "13.46M",
-    "Actual": "13.09M",
+    "Actual": "13.1M",
     "Unit": "",
     "Scale": "M",
     "Source": "TradingView"
@@ -234,7 +234,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "0.1%",
-    "Actual": "1.9%",
+    "Actual": "2%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -270,7 +270,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "1.5%",
-    "Actual": "0.6%",
+    "Actual": "0.8%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -306,7 +306,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "0.3%",
-    "Actual": "2.3%",
+    "Actual": "2.4%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4143,8 +4143,8 @@
     "Country": "USD",
     "Importance": 1,
     "Forecast": "",
-    "Previous": "2.14%",
-    "Actual": "2.15%",
+    "Previous": "1.67%",
+    "Actual": "1.7%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -7314,7 +7314,7 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "0.4",
-    "Actual": "",
+    "Actual": "-1.5",
     "Unit": "",
     "Scale": "",
     "Source": "TradingView"
@@ -7326,7 +7326,7 @@
     "Importance": 2,
     "Forecast": "3.5%",
     "Previous": "3.5%",
-    "Actual": "",
+    "Actual": "3.6%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -10626,6 +10626,18 @@
     "Importance": 2,
     "Forecast": "",
     "Previous": "-36",
+    "Actual": "",
+    "Unit": "",
+    "Scale": "",
+    "Source": "TradingView"
+  },
+  {
+    "Date": "2026-12-10T11:00:00.000Z",
+    "Event": "LSEG/Ipsos Primary Consumer Sentiment Index",
+    "Country": "GBP",
+    "Importance": 1,
+    "Forecast": "",
+    "Previous": "43.95",
     "Actual": "",
     "Unit": "",
     "Scale": "",
