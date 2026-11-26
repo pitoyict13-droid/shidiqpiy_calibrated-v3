@@ -206,5 +206,37 @@
       "BTC/USD": 58999.99,
       "ETH/USD": 1646.51
     }
+  },
+  "2026-11-26T23:30:00.000Z|Tokyo CPI ex All Food and Energy MoM": {
+    "capturedAt": "2026-11-26T21:37:19.784Z",
+    "gold": 3566.199951,
+    "forex": {
+      "EUR": 0.9121,
+      "GBP": 0.763394,
+      "JPY": 159.175491,
+      "CHF": 0.831365,
+      "AUD": 1.513274,
+      "CAD": 1.422849
+    },
+    "crypto": {
+      "BTC/USD": 60938,
+      "ETH/USD": 1708.89
+    }
+  },
+  "2026-11-26T23:30:00.000Z|Tokyo CPI ex All Food and Energy YoY": {
+    "capturedAt": "2026-11-26T21:37:19.784Z",
+    "gold": 3566.199951,
+    "forex": {
+      "EUR": 0.9121,
+      "GBP": 0.763394,
+      "JPY": 159.175491,
+      "CHF": 0.831365,
+      "AUD": 1.513274,
+      "CAD": 1.422849
+    },
+    "crypto": {
+      "BTC/USD": 60938,
+      "ETH/USD": 1708.89
+    }
   }
 }
