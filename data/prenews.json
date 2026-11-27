@@ -1,20 +1,4 @@
 {
-  "2026-11-20T03:15:00-05:00|ECB President Lagarde Speaks": {
-    "capturedAt": "2026-11-20T07:48:33.322Z",
-    "gold": 3558.870117,
-    "forex": {
-      "EUR": 0.910749,
-      "GBP": 0.762372,
-      "JPY": 159.74951,
-      "CHF": 0.843437,
-      "AUD": 1.498714,
-      "CAD": 1.432537
-    },
-    "crypto": {
-      "BTC/USD": 61829.51,
-      "ETH/USD": 1749.52
-    }
-  },
   "2026-11-22T22:00:00.000Z|S&P Global Manufacturing PMI Flash": {
     "capturedAt": "2026-11-22T20:58:51.755Z",
     "gold": 3539,
