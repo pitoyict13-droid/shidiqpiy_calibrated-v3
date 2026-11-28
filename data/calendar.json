@@ -449,7 +449,7 @@
     "Country": "AUD",
     "Importance": 1,
     "Forecast": "",
-    "Previous": "-8.7",
+    "Previous": "-6.7",
     "Actual": "-20.1",
     "Unit": "",
     "Scale": "",
@@ -1742,7 +1742,7 @@
     "Importance": 1,
     "Forecast": "0.6%",
     "Previous": "0.6%",
-    "Actual": "0.7%",
+    "Actual": "0.8%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
@@ -4178,7 +4178,7 @@
     "Importance": 1,
     "Forecast": "",
     "Previous": "0.1%",
-    "Actual": "0.5%",
+    "Actual": "0.7%",
     "Unit": "%",
     "Scale": "",
     "Source": "TradingView"
